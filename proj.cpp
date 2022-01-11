@@ -444,7 +444,7 @@ void update() {
  //player.dest.y = player.coord.y - offsetY;
  //if(mouse.x) player.flip = 1;
  //if(right) player.flip = 0;
- player.tick+=0.5;
+ player.tick+=3;
  if(player.tick>199) player.tick=0;
  player.src.x = round(player.tick/200) * player.src.w;
  //if(left || right) player.src.x = player.src.x + 14;
