@@ -479,13 +479,73 @@ void genMap() {
  }
 }
 
+obj bulletTmp;
+std::vector<obj> bullets;
+bool fire = 0;
+void fireBullet(int x, int y, double vel, double angle, int id, int type) {
+ bulletTmp.id = id;
+ bulletTmp.frame = type;
+ bulletTmp.dest.x = x;
+ bulletTmp.dest.y = y;
+ bulletTmp.vel = vel;
+ bulletTmp.angle = angle;
+ bullets.push_back(bulletTmp);
+}
+void updateBullets() {
+ for(int i=0; i<bullets.size(); i++) {
+  //std::cout << bullet.vel * cos(bullet.angle) << std::endl;
+  bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
+  bullets[i].dest.y += bullets[i].vel * sin(bullets[i].angle);
+  bullets[i].tick--;
+  //std::cout << bullets[i].tick << std::endl;
+  if(bullets[i].tick<0) {
+   bullets.erase(bullets.begin()+i);
+   i--;
+  }
+ }
+}
+void drawBullets() {
+ /*SDL_Rect tmp;
+ for(auto bullet : bullets) {
+  tmp = bullet.dest;
+  tmp.x -= offsetX;
+  tmp.y -= offsetY;
+  drawRect(tmp, setColor(255, 0, 0));
+ }*/
+ obj tmp;
+ for(auto bullet : bullets) {
+  tmp = bullet;
+  tmp.dest.x -= offsetX;
+  tmp.dest.y -= offsetY;
+  tmp.angle = bullet.angle  * 180 / PI;
+  tmp.src.x = tmp.src.w * tmp.frame;
+  draw(&tmp);
+ }
+}
+void initBullet() {
+ bulletTmp.tick=800;
+ bulletTmp.dest.w=40;
+ bulletTmp.dest.h=20;
+ bulletTmp.src.w=8;
+ bulletTmp.src.h=4;
+ bulletTmp.src.y=0;
+ bulletTmp.src.x=0;
+ bulletTmp.img = setImage("res/bullets.png");
+ bulletTmp.center.x = bulletTmp.dest.w/2;
+ bulletTmp.center.y = bulletTmp.dest.h/2;
+ bulletTmp.rotateOnCenter = true;
+}
+
 const Uint8 *keystates;
 void input() {
-    left=right=down=up=0;
+    left=right=down=up=fire=0;
     SDL_Event e;
     keystates = SDL_GetKeyboardState(NULL);
     while(SDL_PollEvent(&e)) {
-        if(e.type == SDL_QUIT) running=false;
+     if(e.type == SDL_QUIT) running=false;
+     if(e.type == SDL_MOUSEBUTTONDOWN) {
+      if(e.button.button == SDL_BUTTON_LEFT) fire=1;
+     }
     }
     if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
     if(keystates[SDL_SCANCODE_W] || keystates[SDL_SCANCODE_UP]) up=1;
@@ -503,13 +563,6 @@ int lengthSquare(int x1, int x2, int y1, int y2){
     int xDiff = x1 - x2;
     int yDiff = y1 - y2;
     return xDiff*xDiff + yDiff*yDiff;
-}
-
-obj bulletTmp;
-std::vector<obj> bullets;
-void fire() {
- 
- bullets.push_back(bulletTmp);
 }
 
 bool collide;
@@ -542,7 +595,10 @@ void update() {
  gun.tick++;
  if(gun.tick > 499) gun.tick=0;
  lu=up;ld=down;ll=left;lr=right;
+ updateBullets();
 }
+
+bool lfire = 0;
 void render() {
  SDL_SetRenderDrawColor(renderer, bkg.r, bkg.g, bkg.b, bkg.a);
  SDL_RenderClear(renderer);
@@ -578,6 +634,13 @@ void render() {
    drawOutline(tmp4, setColor(255, 0, 0, 255));
    collide = true;
   }
+  for(int g=0; g<bullets.size(); g++) {
+   SDL_Rect tmp5 = bullets[g].dest;
+   tmp5.x -= offsetX;
+   tmp5.y -= offsetY;
+   if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) bullets[g].tick-=50;
+   if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) bullets[g].vel=-bullets[g].vel;
+  }
  }
 
  tmp2 = gun;
@@ -596,17 +659,37 @@ void render() {
  //if(gun.flipV) angleToTurn+180;
  gun.angle=tmp2.angle=angleToTurn;
 
+ //if(fire) std::cout << "s" << std::endl;
  xDistance = mouse.x - tmp2.dest.x;
  yDistance = mouse.y - tmp2.dest.y + 15;
  angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
  //gun.angle=tmp2.angle=angleToTurn;
  SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255);
- SDL_RenderDrawLine(renderer, tmp2.dest.x, tmp2.dest.y+15, mouse.x, mouse.y);
+ //SDL_RenderDrawLine(renderer, tmp2.dest.x, tmp2.dest.y+15, mouse.x, mouse.y);
+
+ int px = tmp2.dest.x + gun.dest.w * cos(atan2(yDistance, xDistance));
+ int py = (tmp2.dest.y) + gun.dest.w * sin(atan2(yDistance, xDistance));
+ SDL_RenderDrawLine(renderer, px, py, mouse.x, mouse.y);
+
+ if(fire && !lfire) {
+  int bType = rand() % 4;
+  int bX, bY;
+  double bA = (atan2(yDistance, xDistance));
+  int bV = 30;
+  bX = (bV * cos(bA));
+  bY = (bV * sin(bA));
+  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType);
+ }
+ //if(fire && !lfire) fireBullet(tmp2.dest.x + offsetX, tmp2.dest.y + offsetY, 20, (atan2((mouse.y-(tmp2.dest.y+offsetY)), (mouse.x-(tmp2.dest.x+offsetX)))), 1, 1);
+ lfire = fire;
+
 
  wolf.dest.x=player.dest.x+100-offsetX;
  wolf.dest.y=player.dest.y+100-offsetY;
  wolf.flip = player.flip;
  draw(&wolf);
+
+ drawBullets();
 
  write(std::to_string(offsetX) + ", " + std::to_string(offsetY), mouse.x+50, mouse.y+50);
 
@@ -661,6 +744,7 @@ void init() {
  wolf.dest.w=tile_size*1.3;
  wolf.dest.h=wolf.dest.w*.7;
  tilesImgId = setImage("res/tiles.png");
+ initBullet();
 }
 void quit() {
  TTF_CloseFont(font);
