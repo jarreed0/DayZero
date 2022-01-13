@@ -51,6 +51,8 @@ int map_width = 150; //500;
 int map_height = 150; //500;
 int tile_size = 75;
 
+int tilesImgId;
+
 SDL_Color setColor(Uint8 r, Uint8 g, Uint8 b, Uint8 a) { return SDL_Color {r, g, b, a}; }
 SDL_Color setColor(Uint8 r, Uint8 g, Uint8 b) { return setColor(r, g, b, 255); }
 SDL_Color white = setColor(255, 255, 255, 255);
@@ -74,6 +76,7 @@ struct obj {
  bool flip = 0;
  bool flipV = 0;
  bool rotateOnCenter = 0;
+ int frame;
 } player, gun, wolf;
 
 SDL_Point mouse;
@@ -152,11 +155,15 @@ bool inScreen(obj o) {
 void drawMap() {
  //draw(map);
  SDL_Rect tmp;
+ obj tmp2;
  for(auto tile : map) {
-  tmp = tile.dest;
-  tmp.x -= offsetX;
-  tmp.y -= offsetY;
-  if(inScreen(tile)) {
+  tmp2 = tile;
+  tmp2.dest.x -= offsetX;
+  tmp2.dest.y -= offsetY;
+  tmp2.img = tilesImgId;
+  tmp2.src.x=tmp2.src.y=0;
+  tmp2.src.w=20;tmp2.src.h=20;
+  /*if(inScreen(tile)) {
    if(tile.id == WALL) {
     drawRect(tmp, wallColor);
    } else if(tile.id == TOP) {
@@ -174,6 +181,15 @@ void drawMap() {
     //drawRect(tmp, setColor(19, 32, 29));
     //drawRect(tmp, setColor(190, 216, 239));
    //}
+  }*/
+  //if(inScreen(tile)) {
+  if(inScreen(tmp2)) {
+   if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP) {
+    tmp2.src.x = tmp2.frame * tmp2.src.w;
+    draw(&tmp2);
+   } else if(tile.id == GATE) {
+    drawRect(tmp2.dest, setColor(200, 90, 90));
+   }
   }
  }
  int count = 0;
@@ -385,7 +401,7 @@ void genMap() {
   for(int x = 2; x < map_width-2; x++) {
    if(!spawnSet) {
     if(map[y*map_width + x].id == FLOOR) {
-     if(map[y*map_width + x-1].id ==FLOOR && map[y+1*map_width + x].id == FLOOR && map[y+1*map_width + x-1].id == FLOOR) {
+     if(map[y*map_width + x-1].id == FLOOR && map[y+1*map_width + x].id == FLOOR && map[y+1*map_width + x-1].id == FLOOR) {
       if(rand() % 100 == 1) {
        spawn.x=x;spawn.y=y;
        spawnSet=true;
@@ -395,7 +411,72 @@ void genMap() {
    }
   }
  }
-
+ for(int y = 0; y < map_height; y++) {
+  for(int x = 0; x < map_width; x++) {
+   if(map[y*map_width + x].id == FLOOR || map[y*map_width + x].id == TREE) {
+    if(y>0 && map[(y-1)*map_width + x].id == WALL) {
+     if(y>0 && x>0 && map[(y-1)*map_width + x-1].id != WALL && map[(y-1)*map_width + x-1].id != TOP) {
+      map[y*map_width + x].frame = 12;
+     } else if(y>0 && x<map_width && map[(y-1)*map_width + x+1].id != WALL && map[(y-1)*map_width + x+1].id != TOP) {
+      map[y*map_width + x].frame = 14;
+     } else {
+      map[y*map_width + x].frame = 13;
+     }
+    } else {
+     map[y*map_width + x].frame = 15;
+    }
+   } else if(map[y*map_width + x].id == WALL) {
+    if(x>0 && map[y*map_width + x-1].id == FLOOR || map[y*map_width + x-1].id == TREE) {
+     map[y*map_width + x].frame = 9;
+    } else if(x<map_width && map[y*map_width + x+1].id == FLOOR || map[y*map_width + x+1].id == TREE) {
+     map[y*map_width + x].frame = 11;
+    } else {
+     map[y*map_width + x].frame = 10;
+    }
+   } else if(map[y*map_width + x].id == TOP) {
+    if(y>0 && map[(y-1)*map_width + x].id != TOP) {
+     if(x>0 && map[y*map_width + x-1].id != TOP) {
+      map[y*map_width + x].frame = 0;
+     } else if(x<map_width && map[y*map_width + x+1].id != TOP) {
+      map[y*map_width + x].frame = 2;
+     } else {
+      map[y*map_width + x].frame = 1;
+     }
+    } else if(y<map_height && map[(y+1)*map_width + x].id != TOP) {
+     if(x>0 && map[y*map_width + x-1].id != TOP) {
+      map[y*map_width + x].frame = 6;
+     } else if(x<map_width && map[y*map_width + x+1].id != TOP) {
+      map[y*map_width + x].frame = 8;
+     } else {
+      map[y*map_width + x].frame = 7;
+     }
+    } else {
+     if(x>0 && map[y*map_width + x-1].id != TOP) {
+      map[y*map_width + x].frame = 3;
+     } else if(x<map_width && map[y*map_width + x+1].id != TOP) {
+      map[y*map_width + x].frame = 5;
+     } else {
+      map[y*map_width + x].frame = 4;
+     }
+    }
+   }
+   if(x>0 && y>0 and x<map_width && y<map_height && map[y*map_width + x].id == TOP) {
+    if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP) {
+     if(map[y*map_width + x-1].id != TOP) {
+      map[y*map_width + x].frame = 16;
+     } else if(map[y*map_width + x+1].id != TOP) {
+      map[y*map_width + x].frame = 17;
+     }
+    } else if (map[y*map_width + x-1].id != TOP && map[y*map_width + x+1].id != TOP) {
+     if(map[(y-1)*map_width + x].id != TOP) {
+      map[y*map_width + x].frame = 19;
+     } else if(map[(y+1)*map_width + x].id != TOP) {
+      map[y*map_width + x].frame = 18;
+     }
+    }
+   }
+  }
+ }
 }
 
 const Uint8 *keystates;
@@ -422,6 +503,13 @@ int lengthSquare(int x1, int x2, int y1, int y2){
     int xDiff = x1 - x2;
     int yDiff = y1 - y2;
     return xDiff*xDiff + yDiff*yDiff;
+}
+
+obj bulletTmp;
+std::vector<obj> bullets;
+void fire() {
+ 
+ bullets.push_back(bulletTmp);
 }
 
 bool collide;
@@ -508,6 +596,13 @@ void render() {
  //if(gun.flipV) angleToTurn+180;
  gun.angle=tmp2.angle=angleToTurn;
 
+ xDistance = mouse.x - tmp2.dest.x;
+ yDistance = mouse.y - tmp2.dest.y + 15;
+ angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
+ //gun.angle=tmp2.angle=angleToTurn;
+ SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255);
+ SDL_RenderDrawLine(renderer, tmp2.dest.x, tmp2.dest.y+15, mouse.x, mouse.y);
+
  wolf.dest.x=player.dest.x+100-offsetX;
  wolf.dest.y=player.dest.y+100-offsetY;
  wolf.flip = player.flip;
@@ -565,6 +660,7 @@ void init() {
  wolf.src.h=8;
  wolf.dest.w=tile_size*1.3;
  wolf.dest.h=wolf.dest.w*.7;
+ tilesImgId = setImage("res/tiles.png");
 }
 void quit() {
  TTF_CloseFont(font);
