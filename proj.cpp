@@ -17,6 +17,8 @@ const char * TITLE = "Game";
 
 #define PI 3.14159265359
 
+int setFPS = 120;
+
 int WIDTH = 1800;
 int HEIGHT = 900;
 int flags = SDL_WINDOW_FULLSCREEN; //not used yet
@@ -499,6 +501,14 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type) {
  bulletTmp.vel = vel;
  bulletTmp.angle = angle;
  bullets.push_back(bulletTmp);
+ bulletTmp.angle = angle-.4;
+ bullets.push_back(bulletTmp);
+ bulletTmp.angle = angle+.4;
+ bullets.push_back(bulletTmp);
+ bulletTmp.angle = angle-.2;
+ bullets.push_back(bulletTmp);
+ bulletTmp.angle = angle+.2;
+ bullets.push_back(bulletTmp);
 }
 void updateBullets() {
  for(int i=0; i<bullets.size(); i++) {
@@ -528,9 +538,11 @@ void drawBullets() {
   tmp.dest.y -= offsetY;
   tmp.dest.x -= tmp.dest.w/2;
   tmp.dest.y -= tmp.dest.h/2;
-  tmp.angle = bullet.angle  * 180 / PI;
-  tmp.src.x = tmp.src.w * tmp.frame;
-  draw(&tmp);
+  if(inScreen(tmp)) {
+   tmp.angle = bullet.angle  * 180 / PI;
+   tmp.src.x = tmp.src.w * tmp.frame;
+   draw(&tmp);
+  }
  }
 }
 void initBullet() {
@@ -617,10 +629,10 @@ void render() {
 
  frameCount++;
  timerFPS = SDL_GetTicks()-lastFrame;
- if(timerFPS<(1000/60)) {
-  SDL_Delay((1000/60)-timerFPS);
+ if(timerFPS<(1000/setFPS)) {
+  SDL_Delay((1000/setFPS)-timerFPS);
  }
-
+ std::cout << fps << std::endl;
 
  drawMap();
  //treeObj.dest.x=100;
@@ -673,6 +685,21 @@ void render() {
  double dot = tmp2.dest.x*tmpMouse.x + tmp2.dest.y*tmpMouse.y;
  double det = tmp2.dest.y*tmpMouse.y - tmp2.dest.x*tmpMouse.x;
  tmp2.dest.y = tmp.dest.y + tmp.dest.h/2.3 + (round(tmp2.tick/200)*2);
+ if(fire && !lfire) {
+  tmp2.dest.y-=4;
+  if(tmp2.flipV) {
+   tmp2.dest.x+=16;
+  } else {
+   tmp2.dest.x-=16;
+  }
+ } else if(lfire && !fire) {
+  tmp2.dest.y-=4;
+  if(tmp2.flipV) {
+   tmp2.dest.x+=8;
+  } else {
+   tmp2.dest.x-=8;
+  }
+ }
  draw(&tmp2);
 
  float xDistance = mouse.x - tmp2.dest.x;
