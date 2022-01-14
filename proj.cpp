@@ -77,11 +77,15 @@ struct obj {
  bool flipV = 0;
  bool rotateOnCenter = 0;
  int frame;
-} player, gun, wolf;
+} player, gun, wolf, cursor;
 
 SDL_Point mouse;
 
 obj treeObj;
+
+obj bulletTmp;
+std::vector<obj> bullets;
+bool fire = 0;
 
 std::vector<SDL_Texture*> images;
 int setImage(std::string filename) {
@@ -201,13 +205,18 @@ void drawMap() {
    if(tile.id == TREE && map[count+1].id != TOP) {
     treeObj.dest.x = tmp.x + ((count/map_width)%2)*42;
     treeObj.dest.y = tmp.y - (treeObj.dest.h-tile_size) - 3;
+    //treeObj.flip = rand() % 2;
+    //treeObj.src.x = rand() % 4 * treeObj.src.w;
+    treeObj.flip = tile.flip;
+    treeObj.src.x = tile.tick * treeObj.src.w;
+    //std::cout << tile.frame << std::endl;
     draw(&treeObj);
    }
-   if(SDL_PointInRect(&mouse, &tmp)) {
+   /*if(SDL_PointInRect(&mouse, &tmp)) {
     drawRect(tmp, setColor(0, 255, 255, 100));
     //write(std::to_string(tile.id), mouse.x, mouse.y);
     write(std::to_string(gun.angle), mouse.x, mouse.y);
-   }
+   }*/
   }
   count++;
  }
@@ -256,6 +265,9 @@ bool flood(int x, int y, int tick) {
 void plantTree(int x, int y, int t) {
  if(map[y*map_width + x].id == FLOOR and t > 0) {
   map[y*map_width + x].id = TREE;
+  map[y*map_width + x].flip = rand() % 2;
+  map[y*map_width + x].tick = rand() % 4;
+  //map[y*map_width + x].src.x = rand() % 4 * treeObj.src.w;
   plantTree(x-1,y-1,t-1);
   plantTree(x+1,y-1,t-1);
   plantTree(x,y-1,t-1);
@@ -479,9 +491,6 @@ void genMap() {
  }
 }
 
-obj bulletTmp;
-std::vector<obj> bullets;
-bool fire = 0;
 void fireBullet(int x, int y, double vel, double angle, int id, int type) {
  bulletTmp.id = id;
  bulletTmp.frame = type;
@@ -517,6 +526,8 @@ void drawBullets() {
   tmp = bullet;
   tmp.dest.x -= offsetX;
   tmp.dest.y -= offsetY;
+  tmp.dest.x -= tmp.dest.w/2;
+  tmp.dest.y -= tmp.dest.h/2;
   tmp.angle = bullet.angle  * 180 / PI;
   tmp.src.x = tmp.src.w * tmp.frame;
   draw(&tmp);
@@ -525,9 +536,10 @@ void drawBullets() {
 void initBullet() {
  bulletTmp.tick=800;
  bulletTmp.dest.w=40;
- bulletTmp.dest.h=20;
+ //bulletTmp.dest.w=25;
+ bulletTmp.dest.h=25;
  bulletTmp.src.w=8;
- bulletTmp.src.h=4;
+ bulletTmp.src.h=6;
  bulletTmp.src.y=0;
  bulletTmp.src.x=0;
  bulletTmp.img = setImage("res/bullets.png");
@@ -638,49 +650,57 @@ void render() {
    SDL_Rect tmp5 = bullets[g].dest;
    tmp5.x -= offsetX;
    tmp5.y -= offsetY;
+   double turn = rand() % 16 - 8;
+   //std::cout << turn << std::endl;
    if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) bullets[g].tick-=50;
-   if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) bullets[g].vel=-bullets[g].vel;
+   if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
   }
  }
+
+ SDL_Point tmpMouse;
+ tmpMouse.x = cursor.dest.x + bulletTmp.dest.w;
+ tmpMouse.y = cursor.dest.y + bulletTmp.dest.h;
+ //SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255);
+ if((mouse.x<(WIDTH/2) && mouse.y<(HEIGHT/2)) || (mouse.x>(WIDTH/2) && mouse.y>(HEIGHT/2))) {
+  //SDL_SetRenderDrawColor(renderer, 0, 165, 255, 255);
+  tmpMouse.y-=bulletTmp.dest.h;
+ }
+
 
  tmp2 = gun;
  tmp2.dest.x = tmp.dest.x + 30;
  if(tmp2.flipV) tmp2.dest.x += 12;
- double dot = tmp2.dest.x*mouse.x + tmp2.dest.y*mouse.y;
- double det = tmp2.dest.y*mouse.y - tmp2.dest.x*mouse.x;
- //gun.angle=tmp2.angle=atan2(mouse.y,mouse.x)-atan2(tmp2.dest.y,tmp2.dest.x);// * 180 / PI;//atan2(det, dot); //mouse.y-tmp2.dest.y, mouse.x-tmp2.dest.x) * 180 / PI;
- //std::cout << gun.angle << std::endl;
+ double dot = tmp2.dest.x*tmpMouse.x + tmp2.dest.y*tmpMouse.y;
+ double det = tmp2.dest.y*tmpMouse.y - tmp2.dest.x*tmpMouse.x;
  tmp2.dest.y = tmp.dest.y + tmp.dest.h/2.3 + (round(tmp2.tick/200)*2);
  draw(&tmp2);
 
  float xDistance = mouse.x - tmp2.dest.x;
  float yDistance = mouse.y - tmp2.dest.y;
  double angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
- //if(gun.flipV) angleToTurn+180;
  gun.angle=tmp2.angle=angleToTurn;
 
- //if(fire) std::cout << "s" << std::endl;
- xDistance = mouse.x - tmp2.dest.x;
- yDistance = mouse.y - tmp2.dest.y + 15;
+ xDistance = tmpMouse.x - tmp2.dest.x;
+ yDistance = tmpMouse.y - tmp2.dest.y + 15;
  angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
- //gun.angle=tmp2.angle=angleToTurn;
- SDL_SetRenderDrawColor(renderer, 255, 165, 0, 255);
- //SDL_RenderDrawLine(renderer, tmp2.dest.x, tmp2.dest.y+15, mouse.x, mouse.y);
 
  int px = tmp2.dest.x + gun.dest.w * cos(atan2(yDistance, xDistance));
- int py = (tmp2.dest.y) + gun.dest.w * sin(atan2(yDistance, xDistance));
- SDL_RenderDrawLine(renderer, px, py, mouse.x, mouse.y);
+ int py = (tmp2.dest.y+15) + gun.dest.w * sin(atan2(yDistance, xDistance));
+ //SDL_RenderDrawLine(renderer, px, py, tmpMouse.x, tmpMouse.y);
 
  if(fire && !lfire) {
-  int bType = rand() % 4;
+  int bType = rand() % 5;
   int bX, bY;
   double bA = (atan2(yDistance, xDistance));
-  int bV = 30;
+  int bV = 44;
   bX = (bV * cos(bA));
   bY = (bV * sin(bA));
   fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType);
+  cursor.frame=1;
+ } else {
+  if(cursor.frame==2) cursor.frame=0;
+  if(cursor.frame==1) cursor.frame=2;
  }
- //if(fire && !lfire) fireBullet(tmp2.dest.x + offsetX, tmp2.dest.y + offsetY, 20, (atan2((mouse.y-(tmp2.dest.y+offsetY)), (mouse.x-(tmp2.dest.x+offsetX)))), 1, 1);
  lfire = fire;
 
 
@@ -691,7 +711,13 @@ void render() {
 
  drawBullets();
 
- write(std::to_string(offsetX) + ", " + std::to_string(offsetY), mouse.x+50, mouse.y+50);
+ cursor.dest.x = mouse.x - cursor.dest.w/2; //+ bulletTmp.dest.w;
+ cursor.dest.y = mouse.y - cursor.dest.h/2; //+ bulletTmp.dest.h;
+ cursor.src.x = cursor.frame * cursor.src.w;
+ draw(&cursor);
+
+
+ write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
 
  SDL_RenderPresent(renderer);
 }
@@ -709,6 +735,7 @@ void init() {
  font_size = 16;
  font = TTF_OpenFont("res/font.ttf", font_size);
  if(font == NULL) std::cout << "Failed to load font" << std::endl;
+ SDL_ShowCursor(SDL_DISABLE);
  setBkg(51, 73, 95);
  //setBkg(255, 0, 0);
  font_color = black; //setColor(0, 255, 255);
@@ -719,6 +746,7 @@ void init() {
  treeObj.dest.h=tile_size*1.5;treeObj.src.h=76;
  treeObj.src.x=treeObj.src.y=0;
  treeObj.img = setImage("res/tree.png");
+ treeObj.flip=1;
  player.dest.x = spawn.x * tile_size;
  player.dest.y = spawn.y * tile_size;
  player.dest.w = tile_size-8;
@@ -745,6 +773,11 @@ void init() {
  wolf.dest.h=wolf.dest.w*.7;
  tilesImgId = setImage("res/tiles.png");
  initBullet();
+ cursor.img = setImage("res/cursor.png");
+ cursor.src.x=cursor.src.y=0;
+ cursor.src.w=cursor.src.h=18;
+ cursor.dest.w=cursor.dest.h=tile_size;
+ cursor.frame=0;
 }
 void quit() {
  TTF_CloseFont(font);
