@@ -13,11 +13,13 @@
 #include <vector>
 #include <cmath>
 
+int task_count = 0;
+
 const char * TITLE = "Game";
 
 #define PI 3.14159265359
 
-int setFPS = 120;
+int setFPS = 60;
 
 int WIDTH = 1800;
 int HEIGHT = 900;
@@ -27,6 +29,7 @@ SDL_Window* window;
 TTF_Font *font;
 SDL_Color font_color;
 int font_size;
+SDL_Rect screenRect;
 
 #define TOP 1
 #define WALL 2
@@ -141,6 +144,7 @@ void draw(obj* o) {
 }
 void draw(std::vector<obj> os) {
  for(auto o : os) {
+  task_count++;
   draw(&o);
  }
 }
@@ -153,74 +157,49 @@ void drawOutline(SDL_Rect r, SDL_Color c) {
  SDL_RenderDrawRect(renderer, &r);
 }
 bool inScreen(obj o) {
- if ((WIDTH < (o.dest.x + o.dest.w)) && (0 > o.dest.x) && (0 > o.dest.y) && (HEIGHT < (o.dest.y+o.dest.h))) {
-  return true;
- }
- return true;
+ return ((o.dest.x+o.dest.w)>0) && ((o.dest.y+o.dest.h)>0) && (o.dest.x-(o.dest.w*4)<WIDTH) && (o.dest.y-(o.dest.h*4)<HEIGHT);
 }
+
 void drawMap() {
- //draw(map);
- SDL_Rect tmp;
  obj tmp2;
+ std::vector<obj> tmpTrees;
+ std::vector<int> tmpTreesCnt;
+ int count = 0;
  for(auto tile : map) {
+  task_count++;
   tmp2 = tile;
   tmp2.dest.x -= offsetX;
   tmp2.dest.y -= offsetY;
-  tmp2.img = tilesImgId;
-  tmp2.src.x=tmp2.src.y=0;
-  tmp2.src.w=20;tmp2.src.h=20;
-  /*if(inScreen(tile)) {
-   if(tile.id == WALL) {
-    drawRect(tmp, wallColor);
-   } else if(tile.id == TOP) {
-    //drawRect(tmp, setColor(51, 73, 95));
-    drawRect(tmp, bkg);
-   } else if(tile.id == FLOOR || tile.id == TREE) {
-    //drawRect(tmp, setColor(50, 143, 200));
-    //drawRect(tmp, setColor(tile.tick*50, tile.tick*20, tile.tick*4));
-    //drawRect(tmp, setColor(150, 150, 255));
-    drawRect(tmp, floorColor);
-    //drawRect(tmp, setColor(154, 167, 170));
-   } else if(tile.id == GATE) {
-    drawRect(tmp, setColor(200, 90, 90));
-   } //else if(tile.id == TREE) {
-    //drawRect(tmp, setColor(19, 32, 29));
-    //drawRect(tmp, setColor(190, 216, 239));
-   //}
-  }*/
-  //if(inScreen(tile)) {
+
   if(inScreen(tmp2)) {
+   tmp2.img = tilesImgId;
+   tmp2.src.x=tmp2.src.y=0;
+   tmp2.src.w=20;tmp2.src.h=20;
    if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP) {
     tmp2.src.x = tmp2.frame * tmp2.src.w;
     draw(&tmp2);
    } else if(tile.id == GATE) {
     drawRect(tmp2.dest, setColor(200, 90, 90));
    }
-  }
- }
- int count = 0;
- for(auto tile : map) {
-  tmp = tile.dest;
-  tmp.x -= offsetX;
-  tmp.y -= offsetY;
-  if(inScreen(tile)) {
-   if(tile.id == TREE && map[count+1].id != TOP) {
-    treeObj.dest.x = tmp.x + ((count/map_width)%2)*42;
-    treeObj.dest.y = tmp.y - (treeObj.dest.h-tile_size) - 3;
-    //treeObj.flip = rand() % 2;
-    //treeObj.src.x = rand() % 4 * treeObj.src.w;
-    treeObj.flip = tile.flip;
-    treeObj.src.x = tile.tick * treeObj.src.w;
-    //std::cout << tile.frame << std::endl;
-    draw(&treeObj);
+   if(tile.id == TREE) {
+    tmpTrees.push_back(tile);
+    tmpTreesCnt.push_back(count);
    }
-   /*if(SDL_PointInRect(&mouse, &tmp)) {
-    drawRect(tmp, setColor(0, 255, 255, 100));
-    //write(std::to_string(tile.id), mouse.x, mouse.y);
-    write(std::to_string(gun.angle), mouse.x, mouse.y);
-   }*/
   }
   count++;
+ }
+ for(int i=0; i<tmpTrees.size(); i++) {
+  task_count++;
+  tmpTrees[i].dest.x -= offsetX;
+  tmpTrees[i].dest.y -= offsetY;
+  if(tmpTrees[i].id == TREE && map[tmpTreesCnt[i]+1].id != TOP) {
+   treeObj.dest.x = tmpTrees[i].dest.x + ((tmpTreesCnt[i]/map_width)%2)*42;
+   treeObj.dest.y = tmpTrees[i].dest.y - (treeObj.dest.h-tile_size) - 3;
+
+   treeObj.flip = tmpTrees[i].flip;
+   treeObj.src.x = tmpTrees[i].tick * treeObj.src.w;
+    draw(&treeObj);
+  }
  }
 }
 
@@ -231,6 +210,7 @@ int floorPer() {
  int c = 0;
  int wc = 0;
  for(auto tile : map) {
+  task_count++;
   if(tile.id == FLOOR) c++;
   if(tile.id == WALL) wc++;
  }
@@ -280,6 +260,7 @@ void plantTree(int x, int y, int t) {
 
   plantTree(x-1,y,t-1);
   plantTree(x+1,y,t-1);
+  //std::cout << "plant" << std::endl;
  }
 }
 
@@ -290,8 +271,10 @@ void genMap() {
  obj tile_tmp;
  tile_tmp.dest.w = tile_tmp.dest.h = tile_size;
  for(int y = 0; y < map_height; y++) {
+  task_count++;
   tile_tmp.dest.y = tile_size * y;
   for(int x = 0; x < map_width; x++) {
+   task_count++;
    int of = rand() % 100;
    tile_tmp.dest.x = tile_size * x;
    tile_tmp.id = TOP;
@@ -302,8 +285,11 @@ void genMap() {
 
  int oc, tc;
  for(int i = 0; i < 6; i++) {
+  task_count++;
   for(int y = 2; y < map_height-2; y++) {
+  task_count++;
    for(int x = 2; x < map_width-2; x++) {
+   task_count++;
     oc = tc = 0;
 
     if(map[((y-1)*map_width) + (x-1)].id == FLOOR) oc++;
@@ -352,6 +338,7 @@ void genMap() {
   }
  }
  for(int y = 0; y < map_height; y++) {
+  task_count++;
   map[y*map_width].id = TOP;
   map[y*map_width + 1].id = TOP;
   map[y*map_width + map_width-2].id = TOP;
@@ -361,6 +348,7 @@ void genMap() {
   if(gt == 2) {map[y*map_width + 1].id = GATE; map[y*map_width + 1].id = GATE;}
  }
  for(int x = 0; x < map_width; x++) {
+  task_count++;
   map[x].id = TOP;
   map[map_width + x].id = TOP;
   map[x + ((map_width-1)*(map_height-1))].id = TOP;
@@ -371,7 +359,9 @@ void genMap() {
  }
 
  for(int y = 2; y < map_height-2; y++) {
+ task_count++;
   for(int x = 2; x < map_width-2; x++) {
+   task_count++;
    if(flood(x, y, floodCount)) floodCount++;
   }
  }
@@ -379,9 +369,12 @@ void genMap() {
  int fc=0;
  int maxfc=0;
  for(int i = 0; i < floodCount; i++) {
+  task_count++;
   int count = 0;
   for(int y = 2; y < map_height-2; y++) {
+   task_count++;
    for(int x = 2; x < map_width-2; x++) {
+   task_count++;
     if(map[y*map_width + x].id == FLOOR) {
      if(count > maxfc) {fc=i;maxfc=count;}
      count++;
@@ -390,13 +383,17 @@ void genMap() {
   }
  }
  for(int y = 2; y < map_height-2; y++) {
+  task_count++;
   for(int x = 2; x < map_width-2; x++) {
+   task_count++;
    if(map[y*map_width + x].tick != fc+1) map[y*map_width + x].id = TOP;
   }
  }
 
  for(int y = 1; y < map_height-2; y++) {
+  task_count++;
   for(int x = 2; x < map_width-2; x++) {
+   task_count++;
    if(map[y*map_width + x].id == TOP && map[((y+1)*map_width) + x].id == FLOOR && map[((y-1)*map_width) + x].id == TOP) {
     map[y*map_width + x].id = WALL;
    } else if (map[y*map_width + x].id == TOP && map[((y+1)*map_width) + x].id == FLOOR && map[((y+2)*map_width) + x].id == FLOOR) {
@@ -406,13 +403,17 @@ void genMap() {
  }
 
  for(int y = 1; y < map_height-2; y++) {
+  task_count++;
   for(int x = 2; x < map_width-2; x++) {
+   task_count++;
    int t = rand() % 2000;
    if(map[y*map_width + x].id == FLOOR && t < 4) plantTree(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
   }
  }
  for(int y = 2; y < map_height-2; y++) {
+  task_count++;
   for(int x = 2; x < map_width-2; x++) {
+  task_count++;
    if(!spawnSet) {
     if(map[y*map_width + x].id == FLOOR) {
      if(map[y*map_width + x-1].id == FLOOR && map[y+1*map_width + x].id == FLOOR && map[y+1*map_width + x-1].id == FLOOR) {
@@ -426,7 +427,9 @@ void genMap() {
   }
  }
  for(int y = 0; y < map_height; y++) {
+  task_count++;
   for(int x = 0; x < map_width; x++) {
+   task_count++;
    if(map[y*map_width + x].id == FLOOR || map[y*map_width + x].id == TREE) {
     if(y>0 && map[(y-1)*map_width + x].id == WALL) {
      if(y>0 && x>0 && map[(y-1)*map_width + x-1].id != WALL && map[(y-1)*map_width + x-1].id != TOP) {
@@ -511,7 +514,8 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type) {
  bullets.push_back(bulletTmp);
 }
 void updateBullets() {
- for(int i=0; i<bullets.size(); i++) {
+ /*for(int i=0; i<bullets.size(); i++) {
+  task_count++;
   //std::cout << bullet.vel * cos(bullet.angle) << std::endl;
   bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
   bullets[i].dest.y += bullets[i].vel * sin(bullets[i].angle);
@@ -521,7 +525,7 @@ void updateBullets() {
    bullets.erase(bullets.begin()+i);
    i--;
   }
- }
+ }*/
 }
 void drawBullets() {
  /*SDL_Rect tmp;
@@ -532,14 +536,23 @@ void drawBullets() {
   drawRect(tmp, setColor(255, 0, 0));
  }*/
  obj tmp;
- for(auto bullet : bullets) {
-  tmp = bullet;
+ for(int i=0; i<bullets.size(); i++) {
+  task_count++;
+  bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
+  bullets[i].dest.y += bullets[i].vel * sin(bullets[i].angle);
+  bullets[i].tick--;
+  if(bullets[i].tick<0) {
+   bullets.erase(bullets.begin()+i);
+   i--;
+  }
+
+  tmp = bullets[i];
   tmp.dest.x -= offsetX;
   tmp.dest.y -= offsetY;
   tmp.dest.x -= tmp.dest.w/2;
   tmp.dest.y -= tmp.dest.h/2;
   if(inScreen(tmp)) {
-   tmp.angle = bullet.angle  * 180 / PI;
+   tmp.angle = bullets[i].angle  * 180 / PI;
    tmp.src.x = tmp.src.w * tmp.frame;
    draw(&tmp);
   }
@@ -619,7 +632,7 @@ void update() {
  gun.tick++;
  if(gun.tick > 499) gun.tick=0;
  lu=up;ld=down;ll=left;lr=right;
- updateBullets();
+ //updateBullets();
 }
 
 bool lfire = 0;
@@ -632,9 +645,10 @@ void render() {
  if(timerFPS<(1000/setFPS)) {
   SDL_Delay((1000/setFPS)-timerFPS);
  }
- std::cout << fps << std::endl;
-
- drawMap();
+ //std::cout << fps << std::endl;
+ //std::cout << 1 << " - " << task_count << std::endl;
+ //drawMap();
+ //std::cout << "1.5" << " - " << task_count << std::endl;
  //treeObj.dest.x=100;
  //treeObj.dest.y=100;
  //draw(&treeObj);
@@ -645,29 +659,71 @@ void render() {
  player.flip=1;
  if(mouse.x > tmp.dest.x+(tmp.dest.w/2)) player.flip=0;
  //drawRect(tmp, setColor(0, 255, 0));
- draw(&tmp);//player);
+ 
+ //std::cout << 2 << " - " << task_count << std::endl;
 
  collide = false;
- for(auto m : map) {
-  SDL_Rect tmp4;
-  tmp4 = m.dest;
-  tmp4.x -= offsetX;
-  tmp4.y -= offsetY;
-  if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp.dest)) {
-   drawRect(tmp4, setColor(255, 0, 0, 100));
-   drawOutline(tmp4, setColor(255, 0, 0, 255));
-   collide = true;
-  }
+
+ obj tmp20;
+ std::vector<obj> tmpTrees;
+ std::vector<int> tmpTreesCnt;
+ int count = 0;
+ for(auto tile : map) {
+  task_count++;
+  tmp20 = tile;
+  tmp20.dest.x -= offsetX;
+  tmp20.dest.y -= offsetY;
+
+  if(inScreen(tmp20)) {
+   tmp20.img = tilesImgId;
+   tmp20.src.x=tmp20.src.y=0;
+   tmp20.src.w=20;tmp20.src.h=20;
+   if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP) {
+    tmp20.src.x = tmp20.frame * tmp20.src.w;
+    draw(&tmp20);
+   } else if(tile.id == GATE) {
+    drawRect(tmp20.dest, setColor(200, 90, 90));
+   }
+   if(tile.id == TREE) {
+    tmpTrees.push_back(tile);
+    tmpTreesCnt.push_back(count);
+   }
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) {
+    drawRect(tmp20.dest, setColor(255, 0, 0, 100));
+    drawOutline(tmp20.dest, setColor(255, 0, 0, 255));
+    collide = true;
+   }
+ // }
   for(int g=0; g<bullets.size(); g++) {
+   task_count++;
    SDL_Rect tmp5 = bullets[g].dest;
    tmp5.x -= offsetX;
    tmp5.y -= offsetY;
    double turn = rand() % 16 - 8;
    //std::cout << turn << std::endl;
-   if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) bullets[g].tick-=50;
-   if(m.id == TOP && SDL_HasIntersection(&tmp4, &tmp5)) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=50;
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
   }
+  }// 
+  count++;
  }
+ for(int i=0; i<tmpTrees.size(); i++) {
+  task_count++;
+  tmpTrees[i].dest.x -= offsetX;
+  tmpTrees[i].dest.y -= offsetY;
+  if(tmpTrees[i].id == TREE && map[tmpTreesCnt[i]+1].id != TOP) {
+   treeObj.dest.x = tmpTrees[i].dest.x + ((tmpTreesCnt[i]/map_width)%2)*42;
+   treeObj.dest.y = tmpTrees[i].dest.y - (treeObj.dest.h-tile_size) - 3;
+
+   treeObj.flip = tmpTrees[i].flip;
+   treeObj.src.x = tmpTrees[i].tick * treeObj.src.w;
+    draw(&treeObj);
+  } 
+
+ }
+ 
+ draw(&tmp);//player);
+ //std::cout << 3 << " - " << task_count << std::endl;
 
  SDL_Point tmpMouse;
  tmpMouse.x = cursor.dest.x + bulletTmp.dest.w;
@@ -678,6 +734,7 @@ void render() {
   tmpMouse.y-=bulletTmp.dest.h;
  }
 
+ //std::cout << 4 << " - " << task_count << std::endl;
 
  tmp2 = gun;
  tmp2.dest.x = tmp.dest.x + 30;
@@ -701,6 +758,7 @@ void render() {
   }
  }
  draw(&tmp2);
+ //std::cout << 5 << " - " << task_count << std::endl;
 
  float xDistance = mouse.x - tmp2.dest.x;
  float yDistance = mouse.y - tmp2.dest.y;
@@ -735,16 +793,20 @@ void render() {
  wolf.dest.y=player.dest.y+100-offsetY;
  wolf.flip = player.flip;
  draw(&wolf);
+ //std::cout << 5 << " - " << task_count << std::endl;
 
  drawBullets();
+ //std::cout << 6 << " - " << task_count << std::endl;
 
  cursor.dest.x = mouse.x - cursor.dest.w/2; //+ bulletTmp.dest.w;
  cursor.dest.y = mouse.y - cursor.dest.h/2; //+ bulletTmp.dest.h;
  cursor.src.x = cursor.frame * cursor.src.w;
  draw(&cursor);
+ //std::cout << 7 << " - " << task_count << std::endl;
 
 
- write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
+ //write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
+ write(std::to_string(fps), 50, 50);
 
  SDL_RenderPresent(renderer);
 }
@@ -805,6 +867,8 @@ void init() {
  cursor.src.w=cursor.src.h=18;
  cursor.dest.w=cursor.dest.h=tile_size;
  cursor.frame=0;
+ screenRect.x=screenRect.y=0;
+ screenRect.x=WIDTH;screenRect.y=HEIGHT;
 }
 void quit() {
  TTF_CloseFont(font);
@@ -826,7 +890,10 @@ int main() {
   input();
   update();
   render();
+  //std::cout << task_count << " : " << fps << std::endl;
+  task_count = 0;
  }
  quit();
  return 1;
 }
+
