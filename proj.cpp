@@ -90,6 +90,8 @@ struct obj {
  bool parent;
 } player, gun, wolf, cursor;
 
+std::vector<obj> footprints;
+
 SDL_Point mouse;
 
 obj treeObj;
@@ -109,7 +111,7 @@ int setImage(std::string filename) {
 SDL_Surface *text_surface;
 SDL_Texture *text_texture;
 SDL_Rect wrect;
-void write(std::string t, int x, int y) {
+/*void write(std::string t, int x, int y) {
  const char *text = t.c_str();
  if (font == NULL) {
   fprintf(stderr, "error: font not found\n");
@@ -121,6 +123,22 @@ void write(std::string t, int x, int y) {
  wrect.h = text_surface->h;
  wrect.x = x-wrect.w;
  wrect.y = y-wrect.h;
+ SDL_FreeSurface(text_surface);
+ SDL_RenderCopy(renderer, text_texture, NULL, &wrect);
+ SDL_DestroyTexture(text_texture);
+}*/
+void write(std::string t, int x, int y) {
+ const char *text = t.c_str();
+ if (font == NULL) {
+  fprintf(stderr, "error: font not found\n");
+  exit(EXIT_FAILURE);
+ }
+ text_surface = TTF_RenderText_Solid(font, text, font_color);
+ text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+ wrect.w = text_surface->w;
+ wrect.h = text_surface->h;
+ wrect.x = x;
+ wrect.y = y;
  SDL_FreeSurface(text_surface);
  SDL_RenderCopy(renderer, text_texture, NULL, &wrect);
  SDL_DestroyTexture(text_texture);
@@ -236,6 +254,17 @@ void drawBuffer() {
  buffer2.clear();
  bufLow=bufHigh=-99;
 }
+
+int ammo = 0;
+int ammoCount [4] = {100, 100, 100, 100};
+void drawUI() {
+ for(int a=0; a < 4; a++) {
+  write("Ammo #" + std::to_string(a+1) + ": " + std::to_string(ammoCount[a]), 40, a*40 + 40);
+  //write("Ammo #" + std::to_string(a+1) + ": ", 40, a*40 + 40);
+ }
+ write("Holding: " + std::to_string(ammo+1), 40, 4*40 + 40);
+}
+
 
 obj merge(obj o1, obj o2) {
  obj mo;
@@ -714,13 +743,24 @@ void input() {
      /*if(e.type == SDL_MOUSEBUTTONDOWN) {
       if(e.button.button == SDL_BUTTON_LEFT) fire=1;
      }*/
+     if(e.type == SDL_MOUSEWHEEL) {
+      if(e.wheel.y>0) ammo++;
+      if(e.wheel.y<0) ammo--;
+     }
     }
     if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
     if(keystates[SDL_SCANCODE_W] || keystates[SDL_SCANCODE_UP]) up=1;
     if(keystates[SDL_SCANCODE_S] || keystates[SDL_SCANCODE_DOWN]) down=1;
     if(keystates[SDL_SCANCODE_A] || keystates[SDL_SCANCODE_LEFT]) left=1;
     if(keystates[SDL_SCANCODE_D] || keystates[SDL_SCANCODE_RIGHT]) right=1;
+    if(keystates[SDL_SCANCODE_1]) ammo=0;
+    if(keystates[SDL_SCANCODE_2]) ammo=1;
+    if(keystates[SDL_SCANCODE_3]) ammo=2;
+    if(keystates[SDL_SCANCODE_4]) ammo=3;
     //if(keystates[SDL_SCANCODE_P]) {srand(time(NULL));genMap();}
+
+    if(ammo>3) ammo=0;
+    if(ammo<0) ammo=3;
 
     mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
     if(mousestate == SDL_BUTTON_LEFT) fire=1;
@@ -874,11 +914,12 @@ void render() {
    double turn = rand() % 16 - 8;
    //std::cout << turn << std::endl;
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=50;
-   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].frame==1) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
   }
   }// 
   count++;
  }
+ draw(footprints);
  for(int i=0; i<tmpTrees.size(); i++) {
   task_count++;
   tmpTrees[i].dest.x -= offsetX;
@@ -953,6 +994,8 @@ void render() {
  int py = (tmp2.dest.y+15) + gun.dest.w * sin(atan2(yDistance, xDistance));
  //SDL_RenderDrawLine(renderer, px, py, tmpMouse.x, tmpMouse.y);
 
+ //if(fire) {// && !lfire) {
+ if(ammoCount[ammo] <= 0) fire=0;
  if(fire) {// && !lfire) {
   int bType = rand() % 5;
   int bX, bY;
@@ -960,12 +1003,14 @@ void render() {
   int bV = 44;
   bX = (bV * cos(bA));
   bY = (bV * sin(bA));
+  bType = ammo;
   fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
   //fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
   //fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
   //fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
   //fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
   cursor.frame=1;
+  ammoCount[ammo]--;
  } else {
   if(cursor.frame==2) cursor.frame=0;
   if(cursor.frame==1) cursor.frame=2;
@@ -984,6 +1029,8 @@ void render() {
 
  drawBullets();
  //std::cout << 6 << " - " << task_count << std::endl;
+
+ drawUI();
 
  cursor.dest.x = mouse.x - cursor.dest.w/2; //+ bulletTmp.dest.w;
  cursor.dest.y = mouse.y - cursor.dest.h/2; //+ bulletTmp.dest.h;
