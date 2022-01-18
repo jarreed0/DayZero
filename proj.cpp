@@ -91,6 +91,8 @@ obj treeObj;
 obj bulletTmp;
 std::vector<obj> bullets;
 bool fire = 0;
+obj shellTmp;
+std::vector<obj> shells;
 
 std::vector<SDL_Texture*> images;
 int setImage(std::string filename) {
@@ -496,7 +498,7 @@ void genMap() {
  }
 }
 
-void fireBullet(int x, int y, double vel, double angle, int id, int type) {
+void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx, int cy) {
  bulletTmp.id = id;
  bulletTmp.frame = type;
  bulletTmp.dest.x = x;
@@ -504,14 +506,20 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type) {
  bulletTmp.vel = vel;
  bulletTmp.angle = angle;
  bullets.push_back(bulletTmp);
- bulletTmp.angle = angle-.4;
- bullets.push_back(bulletTmp);
- bulletTmp.angle = angle+.4;
- bullets.push_back(bulletTmp);
- bulletTmp.angle = angle-.2;
- bullets.push_back(bulletTmp);
- bulletTmp.angle = angle+.2;
- bullets.push_back(bulletTmp);
+ //bulletTmp.angle = angle-.4;
+ //bullets.push_back(bulletTmp);
+ //bulletTmp.angle = angle+.4;
+ //bullets.push_back(bulletTmp);
+ //bulletTmp.angle = angle-.2;
+ //bullets.push_back(bulletTmp);
+ //bulletTmp.angle = angle+.2;
+ //bullets.push_back(bulletTmp);
+ shellTmp.id = 5;
+ shellTmp.dest.x = cx;
+ shellTmp.dest.y = cy;
+ shellTmp.angle = angle;
+ shellTmp.tick = 17;
+ shells.push_back(shellTmp);
 }
 void updateBullets() {
  /*for(int i=0; i<bullets.size(); i++) {
@@ -536,6 +544,34 @@ void drawBullets() {
   drawRect(tmp, setColor(255, 0, 0));
  }*/
  obj tmp;
+ for(int i=0; i<shells.size(); i++) {
+  tmp = shells[i];
+  tmp.dest.x -= offsetX;
+  tmp.dest.y -= offsetY;
+  tmp.dest.x -= tmp.dest.w/2;
+  tmp.dest.y -= tmp.dest.h/2;
+  //tmp.dest.x=tmp.dest.y=0;
+  tmp.dest.y -= sin((tmp.tick)/6) * (player.dest.h);
+  int ang = tmp.angle * 180 / PI;// % 360;
+  if(ang<0) ang+=360;
+  if(ang > 90 && ang < 270) {
+   tmp.dest.x -= tmp.tick * 8 - 20;// - player.dest.w;
+  } else {
+   tmp.dest.x += tmp.tick * 8 - 240;// - player.dest.w;
+  }
+  //std::cout << tmp.angle * 180 / PI << std::endl;//int(tmp.angle * 180 / PI) % 360 << std::endl;
+  tmp.src.x = tmp.id * tmp.src.w;
+  if(inScreen(tmp)) {
+   tmp.angle = shells[i].angle  * 180 / PI;
+   draw(&tmp);
+  }
+  shells[i].tick--;
+  if(shells[i].tick<-2) {
+   shells.erase(shells.begin()+i);
+   i--;
+  }
+  //std::cout << tmp.dest.x << " " << tmp.dest.y << " " << tmp.dest.w << " " << tmp.dest.h << " " << tmp.src.x << " " << tmp.src.y << " " << tmp.src.w << " " << tmp.src.h << std::endl;
+ }
  for(int i=0; i<bullets.size(); i++) {
   task_count++;
   bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
@@ -571,6 +607,12 @@ void initBullet() {
  bulletTmp.center.x = bulletTmp.dest.w/2;
  bulletTmp.center.y = bulletTmp.dest.h/2;
  bulletTmp.rotateOnCenter = true;
+ shellTmp.src.w=8;
+ shellTmp.src.h=6;
+ shellTmp.dest.w=20;
+ shellTmp.dest.h=12;
+ shellTmp.src.x=shellTmp.src.y=0;
+ shellTmp.img = setImage("res/shells.png");
 }
 
 const Uint8 *keystates;
@@ -602,20 +644,27 @@ int lengthSquare(int x1, int x2, int y1, int y2){
     return xDiff*xDiff + yDiff*yDiff;
 }
 
-bool collide;
+bool collideH, collideV;
 int speed = 16;
 bool lu, ld, ll, lr;
 void update() {
- if(collide) {
+ if(collideV) {
   if(lu) player.dest.y+=speed;
   if(ld) player.dest.y-=speed;
+  //if(ll) player.dest.x+=speed;
+  //if(lr) player.dest.x-=speed;
+ }
+ if(collideH) {
   if(ll) player.dest.x+=speed;
   if(lr) player.dest.x-=speed;
  }
+ 
+ //movement
  if(up) player.dest.y-=speed;
  if(down) player.dest.y+=speed;
  if(left) player.dest.x-=speed;
  if(right) player.dest.x+=speed;
+ 
  offsetX = player.dest.x - WIDTH/2 - player.dest.w/2;
  offsetY = player.dest.y - HEIGHT/2 - player.dest.h/2;
  //player.dest.x = player.coord.x - offsetX;
@@ -662,7 +711,7 @@ void render() {
  
  //std::cout << 2 << " - " << task_count << std::endl;
 
- collide = false;
+ collideV = collideH = false;
 
  obj tmp20;
  std::vector<obj> tmpTrees;
@@ -688,12 +737,36 @@ void render() {
     tmpTrees.push_back(tile);
     tmpTreesCnt.push_back(count);
    }
+   //collideV=collideH=1;
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) {
-    drawRect(tmp20.dest, setColor(255, 0, 0, 100));
-    drawOutline(tmp20.dest, setColor(255, 0, 0, 255));
-    collide = true;
+    obj otmp, otmp2;
+    otmp=tmp;
+    if(ll) otmp.dest.x+=speed;
+    if(lr) otmp.dest.x-=speed;
+    if(lu) otmp.dest.y+=speed;
+    if(ld) otmp.dest.y-=speed;
+    otmp2=otmp;
+    if(ll) {
+     otmp = otmp2;
+     otmp.dest.x-=speed;
+     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideH = true;
+    } else if(lr) {
+     otmp = otmp2;
+     otmp.dest.x+=speed;
+     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideH = true;
+    }
+    if(ld) {
+     otmp = otmp2;
+     otmp.dest.y+=speed;
+     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideV = true;
+    } else if(lu) {
+     otmp = otmp2;
+     otmp.dest.y-=speed;
+     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideV = true;
+    }
+    //drawRect(tmp20.dest, setColor(255, 0, 0, 100));
+    //drawOutline(tmp20.dest, setColor(255, 0, 0, 255));
    }
- // }
   for(int g=0; g<bullets.size(); g++) {
    task_count++;
    SDL_Rect tmp5 = bullets[g].dest;
@@ -780,7 +853,11 @@ void render() {
   int bV = 44;
   bX = (bV * cos(bA));
   bY = (bV * sin(bA));
-  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType);
+  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
+  //fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
+  //fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
+  //fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
+  //fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
   cursor.frame=1;
  } else {
   if(cursor.frame==2) cursor.frame=0;
