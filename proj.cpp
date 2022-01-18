@@ -8,6 +8,7 @@
  #include <SDL_ttf.h>
 #endif
 
+#include <cstdlib>
 #include <iostream>
 
 #include <vector>
@@ -36,6 +37,7 @@ SDL_Rect screenRect;
 #define FLOOR 3
 #define TREE 4
 #define GATE 5
+#define SNOW 6
 
 int frameCount, timerFPS, lastFrame, fps;
 
@@ -47,7 +49,7 @@ bool running = 1;
 #define LOADING 5;
 #define EXITING 6;
 int gamestate = PLAYING;
-int seed = time(NULL);
+int seed;
 
 int offsetX, offsetY;
 bool up, down, right, left;
@@ -69,6 +71,8 @@ void setBkg(Uint8 r, Uint8 g, Uint8 b) {
  bkg = setColor(r, g, b);
 }
 
+struct obj;
+
 struct obj {
  SDL_Point coord;
  SDL_Point center;
@@ -82,6 +86,8 @@ struct obj {
  bool flipV = 0;
  bool rotateOnCenter = 0;
  int frame;
+ obj* child;
+ bool parent;
 } player, gun, wolf, cursor;
 
 SDL_Point mouse;
@@ -144,6 +150,41 @@ void draw(obj* o) {
   }
  }
 }
+void drawDebug(obj* o) {
+ //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
+ if(o->flip) {
+  if(o->rotateOnCenter) {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_HORIZONTAL);
+  } else {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_HORIZONTAL);
+  }
+ } else if(o->flipV) {
+  if(o->rotateOnCenter) {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_VERTICAL);
+  } else {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_VERTICAL);
+  }
+ } else {
+  if(o->rotateOnCenter) {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_NONE);
+  } else {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_NONE);
+  }
+ }
+ SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+ SDL_RenderDrawRect(renderer, &o->dest);
+ write(std::to_string(o->dest.x) + ", " +  std::to_string(o->dest.y), o->dest.x + 20, o->dest.y + 20);
+}
+
+void draw(std::vector<obj*> os) {
+ //std::cout << " : " << os.size() << std::endl;
+ //for(auto o : os) {
+ for(int o=0; o<os.size(); o++) {
+  task_count++;
+  drawDebug(os[o]);
+  //std::cout << o << std::endl;
+ }
+}
 void draw(std::vector<obj> os) {
  for(auto o : os) {
   task_count++;
@@ -159,51 +200,67 @@ void drawOutline(SDL_Rect r, SDL_Color c) {
  SDL_RenderDrawRect(renderer, &r);
 }
 bool inScreen(obj o) {
- return ((o.dest.x+o.dest.w)>0) && ((o.dest.y+o.dest.h)>0) && (o.dest.x-(o.dest.w*4)<WIDTH) && (o.dest.y-(o.dest.h*4)<HEIGHT);
+ return ((o.dest.x+o.dest.w)>-100) && ((o.dest.y+o.dest.h)>-100) && (o.dest.x-(o.dest.w*4)<WIDTH+100) && (o.dest.y-(o.dest.h*4)<HEIGHT+100);
+ //return ((o.dest.x+o.dest.w)>0) && ((o.dest.y+o.dest.h)>0) && (o.dest.x-(o.dest.w*4)<WIDTH) && (o.dest.y-(o.dest.h*4)<HEIGHT);
 }
-
-void drawMap() {
- obj tmp2;
- std::vector<obj> tmpTrees;
- std::vector<int> tmpTreesCnt;
- int count = 0;
- for(auto tile : map) {
-  task_count++;
-  tmp2 = tile;
-  tmp2.dest.x -= offsetX;
-  tmp2.dest.y -= offsetY;
-
-  if(inScreen(tmp2)) {
-   tmp2.img = tilesImgId;
-   tmp2.src.x=tmp2.src.y=0;
-   tmp2.src.w=20;tmp2.src.h=20;
-   if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP) {
-    tmp2.src.x = tmp2.frame * tmp2.src.w;
-    draw(&tmp2);
-   } else if(tile.id == GATE) {
-    drawRect(tmp2.dest, setColor(200, 90, 90));
-   }
-   if(tile.id == TREE) {
-    tmpTrees.push_back(tile);
-    tmpTreesCnt.push_back(count);
+bool inScreen(obj* o) {
+ return ((o->dest.x+o->dest.w)>0) && ((o->dest.y+o->dest.h)>0) && (o->dest.x-(o->dest.w*4)<WIDTH) && (o->dest.y-(o->dest.h*4)<HEIGHT);
+}
+std::vector<obj> buffer, buffer2;
+int bufLow, bufHigh;
+int drawToBuffer(obj o) {
+ //std::cout << buffer.size() << std::endl;
+ if(o.dest.y+o.dest.h > bufHigh) bufHigh=o.dest.y+o.dest.h;
+ if(o.dest.y+o.dest.h < bufLow || bufLow==-99) bufLow=o.dest.y+o.dest.h;
+ buffer.push_back(o);
+ return buffer.size();
+}
+void drawBuffer() {
+ //rearange buffer by y-axis
+ //std::cout << bufLow << " - " << bufHigh << std::endl;
+ //std::cout << bufLow << " - " << bufHigh << std::endl;
+ //std::cout << buffer.size() << std::endl;
+ for(int y=bufLow-500; y<bufHigh+500; y++) {
+  for(int b=0; b<buffer.size(); b++) {
+   //std::cout << b << " "  <<buffer[b]->dest.x << "," << buffer[b]->dest.y << std::endl;
+   if(buffer[b].dest.y+buffer[b].dest.h==y) {
+    buffer2.push_back(buffer[b]);
+    if(buffer[b].parent) buffer2.push_back(*buffer[b].child);
+    //buffer.erase(buffer.begin()+b);
+    //b--;
    }
   }
-  count++;
  }
- for(int i=0; i<tmpTrees.size(); i++) {
-  task_count++;
-  tmpTrees[i].dest.x -= offsetX;
-  tmpTrees[i].dest.y -= offsetY;
-  if(tmpTrees[i].id == TREE && map[tmpTreesCnt[i]+1].id != TOP) {
-   treeObj.dest.x = tmpTrees[i].dest.x + ((tmpTreesCnt[i]/map_width)%2)*42;
-   treeObj.dest.y = tmpTrees[i].dest.y - (treeObj.dest.h-tile_size) - 3;
-
-   treeObj.flip = tmpTrees[i].flip;
-   treeObj.src.x = tmpTrees[i].tick * treeObj.src.w;
-    draw(&treeObj);
-  }
- }
+ draw(buffer2);
+ buffer.clear();
+ buffer2.clear();
+ bufLow=bufHigh=-99;
 }
+
+obj merge(obj o1, obj o2) {
+ obj mo;
+ mo=o1;
+ if(mo.dest.x>o2.dest.x) mo.dest.x=o2.dest.x;
+ if(mo.dest.y>o2.dest.x) mo.dest.y=o2.dest.y;
+ if(mo.dest.w<o2.dest.x) mo.dest.w=o2.dest.w;
+ if(mo.dest.h<o2.dest.x) mo.dest.h=o2.dest.h;
+ if(mo.src.x>o2.dest.x) mo.dest.x=o2.src.x;
+ if(mo.src.y>o2.dest.x) mo.dest.y=o2.src.y;
+ if(mo.src.w<o2.dest.x) mo.dest.w=o2.src.w;
+ if(mo.src.h<o2.dest.x) mo.dest.h=o2.src.h;
+ mo.angle=0;
+ SDL_Texture* tar;// = SDL_CreateTexture();
+ SDL_SetRenderTarget(renderer, tar);
+ draw(&o1);
+ draw(&o2);
+ SDL_SetRenderTarget(renderer, NULL);
+ //SDL_RenderPresent(renderer);
+ //SDL_RenderClear(renderer);
+ //SDL_RenderCopy(renderer, tar, NULL, NULL);
+ //SDL_RenderPresent(renderer);
+ return mo;
+}
+
 
 int fpc = 0;
 int floorPer() {
@@ -216,6 +273,7 @@ int floorPer() {
   if(tile.id == FLOOR) c++;
   if(tile.id == WALL) wc++;
  }
+ //std::cout << wc << std::endl;
  if(wc == 0 || ((c*100)/(map.size()+1) + 1) < 30) {
   seed = rand() % time(NULL);
   srand(seed);
@@ -263,6 +321,23 @@ void plantTree(int x, int y, int t) {
   plantTree(x-1,y,t-1);
   plantTree(x+1,y,t-1);
   //std::cout << "plant" << std::endl;
+ }
+}
+
+void laySnow(int x, int y, int t) {
+ if(map[y*map_width + x].id == FLOOR and t > 0) {
+  map[y*map_width + x].id = SNOW;
+
+  laySnow(x-1,y-1,t-1);
+  laySnow(x+1,y-1,t-1);
+  laySnow(x,y-1,t-1);
+
+  laySnow(x-1,y+1,t-1);
+  laySnow(x+1,y+1,t-1);
+  laySnow(x,y+1,t-1);
+
+  laySnow(x-1,y,t-1);
+  laySnow(x+1,y,t-1);
  }
 }
 
@@ -410,6 +485,8 @@ void genMap() {
    task_count++;
    int t = rand() % 2000;
    if(map[y*map_width + x].id == FLOOR && t < 4) plantTree(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
+   t = rand() % 2000;
+   if(map[y*map_width + x].id == FLOOR && t < 4) laySnow(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
   }
  }
  for(int y = 2; y < map_height-2; y++) {
@@ -445,6 +522,8 @@ void genMap() {
      map[y*map_width + x].frame = 15;
     }
     if(map[(y-1)*map_width + x].frame == 21) map[y*map_width + x].frame=22;
+   } else if(map[y*map_width + x].id == SNOW) {
+    map[y*map_width + x].frame = 23;
    } else if(map[y*map_width + x].id == WALL) {
     if(x>0 && map[y*map_width + x-1].id == FLOOR || map[y*map_width + x-1].id == TREE) {
      map[y*map_width + x].frame = 9;
@@ -486,7 +565,7 @@ void genMap() {
       map[y*map_width + x].frame = 20;
       //if(y-1>0){ std::cout<<"x"<<std::endl;map[((y-1)*map_width) + x].frame = 21;}
       //if(y-2>2) {std::cout<<"x"<<std::endl;map[((y-2)*map_width) + x].frame = 22;}
-      std::cout << x  << " " << y << std::endl;
+      //std::cout << x  << " " << y << std::endl;
     } else if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP) {
      if(map[y*map_width + x-1].id != TOP) {
       map[y*map_width + x].frame = 16;
@@ -558,7 +637,7 @@ void drawBullets() {
   tmp.dest.x -= tmp.dest.w/2;
   tmp.dest.y -= tmp.dest.h/2;
   //tmp.dest.x=tmp.dest.y=0;
-  tmp.dest.y -= sin((tmp.tick)/6) * (player.dest.h);
+  tmp.dest.y -= sin((tmp.tick)/6) * (player.dest.h/2);
   int ang = tmp.angle * 180 / PI;// % 360;
   if(ang<0) ang+=360;
   if(ang > 90 && ang < 270) {
@@ -571,6 +650,7 @@ void drawBullets() {
   if(inScreen(tmp)) {
    tmp.angle = shells[i].angle  * 180 / PI;
    draw(&tmp);
+   //drawToBuffer(tmp);
   }
   shells[i].tick--;
   if(shells[i].tick<-2) {
@@ -598,6 +678,7 @@ void drawBullets() {
    tmp.angle = bullets[i].angle  * 180 / PI;
    tmp.src.x = tmp.src.w * tmp.frame;
    draw(&tmp);
+   //drawToBuffer(tmp);
   }
  }
 }
@@ -623,15 +704,16 @@ void initBullet() {
 }
 
 const Uint8 *keystates;
+Uint32 mousestate;
 void input() {
     left=right=down=up=fire=0;
     SDL_Event e;
     keystates = SDL_GetKeyboardState(NULL);
     while(SDL_PollEvent(&e)) {
      if(e.type == SDL_QUIT) running=false;
-     if(e.type == SDL_MOUSEBUTTONDOWN) {
+     /*if(e.type == SDL_MOUSEBUTTONDOWN) {
       if(e.button.button == SDL_BUTTON_LEFT) fire=1;
-     }
+     }*/
     }
     if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
     if(keystates[SDL_SCANCODE_W] || keystates[SDL_SCANCODE_UP]) up=1;
@@ -640,7 +722,9 @@ void input() {
     if(keystates[SDL_SCANCODE_D] || keystates[SDL_SCANCODE_RIGHT]) right=1;
     //if(keystates[SDL_SCANCODE_P]) {srand(time(NULL));genMap();}
 
-    SDL_GetMouseState(&mouse.x, &mouse.y);
+    mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
+    if(mousestate == SDL_BUTTON_LEFT) fire=1;
+    //std::cout << ms << std::endl;
 }
 
 int lengthSquare(int x1, int x2, int y1, int y2){
@@ -651,10 +735,12 @@ int lengthSquare(int x1, int x2, int y1, int y2){
     return xDiff*xDiff + yDiff*yDiff;
 }
 
-bool collideH, collideV;
-int speed = 16;
+bool collideH, collideV, inSnow;
+int speed;
 bool lu, ld, ll, lr;
 void update() {
+ speed = 16;
+ if(inSnow) speed=4;
  if(collideV) {
   if(lu) player.dest.y+=speed;
   if(ld) player.dest.y-=speed;
@@ -718,7 +804,7 @@ void render() {
  
  //std::cout << 2 << " - " << task_count << std::endl;
 
- collideV = collideH = false;
+ collideV = collideH = inSnow = false;
 
  obj tmp20;
  std::vector<obj> tmpTrees;
@@ -734,9 +820,13 @@ void render() {
    tmp20.img = tilesImgId;
    tmp20.src.x=tmp20.src.y=0;
    tmp20.src.w=20;tmp20.src.h=20;
-   if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP) {
+   if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP || tile.id == SNOW) {
     tmp20.src.x = tmp20.frame * tmp20.src.w;
-    draw(&tmp20);
+    //if(tile.frame >= 3) {
+     draw(&tmp20);
+    /*} else {
+     drawToBuffer(tmp20);
+    }*/
    } else if(tile.id == GATE) {
     drawRect(tmp20.dest, setColor(200, 90, 90));
    }
@@ -745,6 +835,8 @@ void render() {
     tmpTreesCnt.push_back(count);
    }
    //collideV=collideH=1;
+   //if(tile.id == TOP && tile.frame >= 3 && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) {
+   if(tile.id == SNOW && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) inSnow=true;
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) {
     obj otmp, otmp2;
     otmp=tmp;
@@ -797,12 +889,15 @@ void render() {
 
    treeObj.flip = tmpTrees[i].flip;
    treeObj.src.x = tmpTrees[i].tick * treeObj.src.w;
-    draw(&treeObj);
-  } 
+   //draw(&treeObj);
+   drawToBuffer(treeObj);
+   //std::cout << i << std::endl;
+  }
 
  }
- 
- draw(&tmp);//player);
+
+ //draw(&tmp);//player);
+ //drawToBuffer(tmp);//player);
  //std::cout << 3 << " - " << task_count << std::endl;
 
  SDL_Point tmpMouse;
@@ -837,7 +932,12 @@ void render() {
    tmp2.dest.x-=8;
   }
  }
- draw(&tmp2);
+ //draw(&tmp2);
+ //drawToBuffer(tmp2);
+ tmp.parent=1;
+ tmp.child=&tmp2;
+ drawToBuffer(tmp);//player);
+ //merge(tmp, tmp2); //////////////////////////////////////////////////////////////////////////////////
  //std::cout << 5 << " - " << task_count << std::endl;
 
  float xDistance = mouse.x - tmp2.dest.x;
@@ -853,7 +953,7 @@ void render() {
  int py = (tmp2.dest.y+15) + gun.dest.w * sin(atan2(yDistance, xDistance));
  //SDL_RenderDrawLine(renderer, px, py, tmpMouse.x, tmpMouse.y);
 
- if(fire && !lfire) {
+ if(fire) {// && !lfire) {
   int bType = rand() % 5;
   int bX, bY;
   double bA = (atan2(yDistance, xDistance));
@@ -876,8 +976,11 @@ void render() {
  wolf.dest.x=player.dest.x+100-offsetX;
  wolf.dest.y=player.dest.y+100-offsetY;
  wolf.flip = player.flip;
- draw(&wolf);
+ drawToBuffer(wolf);
  //std::cout << 5 << " - " << task_count << std::endl;
+
+ //draw(buffer);buffer.clear();
+ drawBuffer();
 
  drawBullets();
  //std::cout << 6 << " - " << task_count << std::endl;
@@ -891,6 +994,7 @@ void render() {
 
  //write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
  write(std::to_string(fps), 50, 50);
+
 
  SDL_RenderPresent(renderer);
 }
@@ -912,6 +1016,7 @@ void init() {
  setBkg(51, 73, 95);
  //setBkg(255, 0, 0);
  font_color = black; //setColor(0, 255, 255);
+ genMap();
  while(floorPer() < 30) genMap();
  offsetX=map_width/2 * tile_size - WIDTH/2;
  offsetY=map_height/2 * tile_size - HEIGHT/2;
@@ -961,7 +1066,10 @@ void quit() {
  SDL_Quit();
 }
 
-int main() {
+int main(int argc, char **argv) {
+ seed = time(NULL);
+ //std::cout << argv[1] << "\n";
+ if(argc>=2) seed = atoi(argv[1]);
  init();
  static int lastTime = 0;
  while(running) {
