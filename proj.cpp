@@ -444,6 +444,7 @@ void genMap() {
     } else {
      map[y*map_width + x].frame = 15;
     }
+    if(map[(y-1)*map_width + x].frame == 21) map[y*map_width + x].frame=22;
    } else if(map[y*map_width + x].id == WALL) {
     if(x>0 && map[y*map_width + x-1].id == FLOOR || map[y*map_width + x-1].id == TREE) {
      map[y*map_width + x].frame = 9;
@@ -452,6 +453,7 @@ void genMap() {
     } else {
      map[y*map_width + x].frame = 10;
     }
+    if(map[(y-1)*map_width + x].frame == 20) map[y*map_width + x].frame=21;
    } else if(map[y*map_width + x].id == TOP) {
     if(y>0 && map[(y-1)*map_width + x].id != TOP) {
      if(x>0 && map[y*map_width + x-1].id != TOP) {
@@ -480,7 +482,12 @@ void genMap() {
     }
    }
    if(x>0 && y>0 and x<map_width && y<map_height && map[y*map_width + x].id == TOP) {
-    if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP) {
+    if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP && map[y*map_width + x-1].id != TOP && map[y*map_width + x+1].id != TOP) {
+      map[y*map_width + x].frame = 20;
+      //if(y-1>0){ std::cout<<"x"<<std::endl;map[((y-1)*map_width) + x].frame = 21;}
+      //if(y-2>2) {std::cout<<"x"<<std::endl;map[((y-2)*map_width) + x].frame = 22;}
+      std::cout << x  << " " << y << std::endl;
+    } else if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP) {
      if(map[y*map_width + x-1].id != TOP) {
       map[y*map_width + x].frame = 16;
      } else if(map[y*map_width + x+1].id != TOP) {
