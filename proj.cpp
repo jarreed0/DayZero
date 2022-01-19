@@ -2,21 +2,24 @@
  #include <SDL2/SDL.h>
  #include <SDL2/SDL_image.h>
  #include <SDL2/SDL_ttf.h>
+ #include <SDL2/SDL_mixer.h>
 #else
  #include <SDL.h>
  #include <SDL_image.h>
  #include <SDL_ttf.h>
+ #include <SDL_mixer.h>
 #endif
 
 #include <cstdlib>
 #include <iostream>
 
+#include <fstream>
+#include <iterator>
+
 #include <vector>
 #include <cmath>
 
-int task_count = 0;
-
-const char * TITLE = "Game";
+const char * TITLE = "Nuclear Winter";
 
 #define PI 3.14159265359
 
@@ -71,14 +74,50 @@ void setBkg(Uint8 r, Uint8 g, Uint8 b) {
  bkg = setColor(r, g, b);
 }
 
-struct obj;
 
+int gunSound, ricSound, shotSound;
+std::vector<Mix_Chunk*> sounds;
+int loadSound(const char* filename) {
+ Mix_Chunk *s = NULL;
+ s = Mix_LoadWAV(filename);
+ if(s == NULL) {
+  printf( "Failed to load wav! SDL_mixer Error: %s\n", Mix_GetError() );
+  return -1;
+ }
+ sounds.push_back(s);
+ return sounds.size()-1;
+}
+int playSound(int s) {
+ Mix_PlayChannel(-1, sounds[s], 0);
+ return 0;
+}
+void quitSounds() {
+ for(int s=0; s<sounds.size(); s++) {
+  Mix_FreeChunk(sounds[s]);
+  sounds[s]=NULL;
+ }
+ Mix_Quit();
+}
+int initAudio() {
+ SDL_Init(SDL_INIT_AUDIO);
+ if(Mix_OpenAudio( 44100, MIX_DEFAULT_FORMAT, 2, 2048 ) < 0) {
+  printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
+  return -1;
+ }
+ gunSound = loadSound("res/gun.wav");
+ ricSound = loadSound("res/ricochet.wav");
+ shotSound = loadSound("res/shot.wav");
+ return 0;
+}
+
+struct obj;
 struct obj {
  SDL_Point coord;
  SDL_Point center;
  SDL_Rect dest, src;
  double angle = 0;
  double vel = 0;
+ double lastVel = 0;
  double tick = 0;
  int id = FLOOR;
  int img;
@@ -91,6 +130,8 @@ struct obj {
 } player, gun, wolf, cursor;
 
 std::vector<obj> footprints;
+int footTick = 0;
+obj footTmp;
 
 SDL_Point mouse;
 
@@ -144,7 +185,7 @@ void write(std::string t, int x, int y) {
  SDL_DestroyTexture(text_texture);
 }
 
-std::vector<obj> map;
+std::vector<obj> map, tmpMap;
 
 void draw(obj* o) {
  //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
@@ -198,14 +239,23 @@ void draw(std::vector<obj*> os) {
  //std::cout << " : " << os.size() << std::endl;
  //for(auto o : os) {
  for(int o=0; o<os.size(); o++) {
-  task_count++;
-  drawDebug(os[o]);
+  //drawDebug(os[o]);
+  draw(os[o]);
   //std::cout << o << std::endl;
+ }
+}
+void drawWithOffset(std::vector<obj> os) {
+ obj tmp;
+ for(int o=0; o<os.size(); o++) {
+  tmp = os[o];
+  tmp.dest.x -= offsetX;
+  tmp.dest.y -= offsetY;
+  //std::cout << tmp.dest.x << ", " << tmp.dest.y<<std::endl;
+  draw(&tmp);
  }
 }
 void draw(std::vector<obj> os) {
  for(auto o : os) {
-  task_count++;
   draw(&o);
  }
 }
@@ -218,11 +268,11 @@ void drawOutline(SDL_Rect r, SDL_Color c) {
  SDL_RenderDrawRect(renderer, &r);
 }
 bool inScreen(obj o) {
- return ((o.dest.x+o.dest.w)>-100) && ((o.dest.y+o.dest.h)>-100) && (o.dest.x-(o.dest.w*4)<WIDTH+100) && (o.dest.y-(o.dest.h*4)<HEIGHT+100);
+ return ((o.dest.x+o.dest.w)>-200) && ((o.dest.y+o.dest.h)>-200) && (o.dest.x-(o.dest.w*4)<WIDTH+200) && (o.dest.y-(o.dest.h*4)<HEIGHT+200);
  //return ((o.dest.x+o.dest.w)>0) && ((o.dest.y+o.dest.h)>0) && (o.dest.x-(o.dest.w*4)<WIDTH) && (o.dest.y-(o.dest.h*4)<HEIGHT);
 }
 bool inScreen(obj* o) {
- return ((o->dest.x+o->dest.w)>0) && ((o->dest.y+o->dest.h)>0) && (o->dest.x-(o->dest.w*4)<WIDTH) && (o->dest.y-(o->dest.h*4)<HEIGHT);
+ return ((o->dest.x+o->dest.w)>-200) && ((o->dest.y+o->dest.h)>-200) && (o->dest.x-(o->dest.w*4)<WIDTH+200) && (o->dest.y-(o->dest.h*4)<HEIGHT+200);
 }
 std::vector<obj> buffer, buffer2;
 int bufLow, bufHigh;
@@ -256,13 +306,14 @@ void drawBuffer() {
 }
 
 int ammo = 0;
-int ammoCount [4] = {100, 100, 100, 100};
+int ammoCount [4] = {999, 999, 999, 999};
 void drawUI() {
  for(int a=0; a < 4; a++) {
   write("Ammo #" + std::to_string(a+1) + ": " + std::to_string(ammoCount[a]), 40, a*40 + 40);
   //write("Ammo #" + std::to_string(a+1) + ": ", 40, a*40 + 40);
  }
  write("Holding: " + std::to_string(ammo+1), 40, 4*40 + 40);
+ write(std::to_string(fps), 40, 5*40 + 40);
 }
 
 
@@ -291,32 +342,10 @@ obj merge(obj o1, obj o2) {
 }
 
 
-int fpc = 0;
-int floorPer() {
- fpc++;
- if(fpc > 8) return 40;
- int c = 0;
- int wc = 0;
- for(auto tile : map) {
-  task_count++;
-  if(tile.id == FLOOR) c++;
-  if(tile.id == WALL) wc++;
- }
- //std::cout << wc << std::endl;
- if(wc == 0 || ((c*100)/(map.size()+1) + 1) < 30) {
-  seed = rand() % time(NULL);
-  srand(seed);
-  std::cout << "SEED: " << seed << std::endl;
- }
- if(wc == 0) return 0;
- //std::cout << (c*100)/(map.size()+1) + 1 << std::endl;
- return (c*100)/(map.size()+1) + 1;
-}
-
 int floodCount = 1;
 bool flood(int x, int y, int tick) {
- if(map[y*map_width + x].id == FLOOR && map[y*map_width + x].tick == 0) {
-  map[y*map_width + x].tick = tick;
+ if(tmpMap[y*map_width + x].id == FLOOR && tmpMap[y*map_width + x].tick == 0) {
+  tmpMap[y*map_width + x].tick = tick;
   flood(x-1, y-1, tick);
   flood(x+1, y-1, tick);
   flood(x, y-1, tick);
@@ -334,11 +363,11 @@ bool flood(int x, int y, int tick) {
 }
 
 void plantTree(int x, int y, int t) {
- if(map[y*map_width + x].id == FLOOR and t > 0) {
-  map[y*map_width + x].id = TREE;
-  map[y*map_width + x].flip = rand() % 2;
-  map[y*map_width + x].tick = rand() % 4;
-  //map[y*map_width + x].src.x = rand() % 4 * treeObj.src.w;
+ if(tmpMap[y*map_width + x].id == FLOOR and t > 0) {
+  tmpMap[y*map_width + x].id = TREE;
+  tmpMap[y*map_width + x].flip = rand() % 2;
+  tmpMap[y*map_width + x].tick = rand() % 4;
+  //tmpMap[y*map_width + x].src.x = rand() % 4 * treeObj.src.w;
   plantTree(x-1,y-1,t-1);
   plantTree(x+1,y-1,t-1);
   plantTree(x,y-1,t-1);
@@ -354,8 +383,8 @@ void plantTree(int x, int y, int t) {
 }
 
 void laySnow(int x, int y, int t) {
- if(map[y*map_width + x].id == FLOOR and t > 0) {
-  map[y*map_width + x].id = SNOW;
+ if(tmpMap[y*map_width + x].id == FLOOR and t > 0) {
+  tmpMap[y*map_width + x].id = SNOW;
 
   laySnow(x-1,y-1,t-1);
   laySnow(x+1,y-1,t-1);
@@ -374,100 +403,94 @@ bool spawnSet;
 SDL_Point spawn;
 void genMap() {
  map.clear();
+ tmpMap.clear();
  obj tile_tmp;
  tile_tmp.dest.w = tile_tmp.dest.h = tile_size;
  for(int y = 0; y < map_height; y++) {
-  task_count++;
   tile_tmp.dest.y = tile_size * y;
   for(int x = 0; x < map_width; x++) {
-   task_count++;
    int of = rand() % 100;
    tile_tmp.dest.x = tile_size * x;
    tile_tmp.id = TOP;
    if(of > 40) tile_tmp.id = FLOOR;
-   map.push_back(tile_tmp);
+   //std::cout << tile_tmp.id << " ";
+   tmpMap.push_back(tile_tmp);
   }
+  //std::cout << std::endl;
  }
 
  int oc, tc;
  for(int i = 0; i < 6; i++) {
-  task_count++;
   for(int y = 2; y < map_height-2; y++) {
-  task_count++;
    for(int x = 2; x < map_width-2; x++) {
-   task_count++;
     oc = tc = 0;
 
-    if(map[((y-1)*map_width) + (x-1)].id == FLOOR) oc++;
-    if(map[((y-1)*map_width) + x].id == FLOOR) oc++;
-    if(map[((y-1)*map_width) + (x+1)].id == FLOOR) oc++;
-    if(map[(y*map_width) + (x-1)].id == FLOOR) oc++;
-    if(map[(y*map_width) + (x+1)].id == FLOOR) oc++;
-    if(map[((y+1)*map_width) + (x-1)].id == FLOOR) oc++;
-    if(map[((y+1)*map_width) + x].id == FLOOR) oc++;
-    if(map[((y+1)*map_width) + (x+1)].id == FLOOR) oc++;
+    if(tmpMap[((y-1)*map_width) + (x-1)].id == FLOOR) oc++;
+    if(tmpMap[((y-1)*map_width) + x].id == FLOOR) oc++;
+    if(tmpMap[((y-1)*map_width) + (x+1)].id == FLOOR) oc++;
+    if(tmpMap[(y*map_width) + (x-1)].id == FLOOR) oc++;
+    if(tmpMap[(y*map_width) + (x+1)].id == FLOOR) oc++;
+    if(tmpMap[((y+1)*map_width) + (x-1)].id == FLOOR) oc++;
+    if(tmpMap[((y+1)*map_width) + x].id == FLOOR) oc++;
+    if(tmpMap[((y+1)*map_width) + (x+1)].id == FLOOR) oc++;
 
-    if(map[((y-2)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x-1)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x+1)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x+2)].id == FLOOR) tc++;
+    if(tmpMap[((y-2)*map_width) + (x-2)].id == FLOOR) tc++;
+    if(tmpMap[((y-2)*map_width) + (x-1)].id == FLOOR) tc++;
+    if(tmpMap[((y-2)*map_width) + (x)].id == FLOOR) tc++;
+    if(tmpMap[((y-2)*map_width) + (x+1)].id == FLOOR) tc++;
+    if(tmpMap[((y-2)*map_width) + (x+2)].id == FLOOR) tc++;
 
-    if(map[((y-1)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y+1)*map_width) + (x-2)].id == FLOOR) tc++;
+    if(tmpMap[((y-1)*map_width) + (x-2)].id == FLOOR) tc++;
+    if(tmpMap[((y)*map_width) + (x-2)].id == FLOOR) tc++;
+    if(tmpMap[((y+1)*map_width) + (x-2)].id == FLOOR) tc++;
 
-    if(map[((y-1)*map_width) + (x+2)].id == FLOOR) tc++;
-    if(map[((y)*map_width) + (x+2)].id == FLOOR) tc++;
-    if(map[((y+1)*map_width) + (x+2)].id == FLOOR) tc++;
+    if(tmpMap[((y-1)*map_width) + (x+2)].id == FLOOR) tc++;
+    if(tmpMap[((y)*map_width) + (x+2)].id == FLOOR) tc++;
+    if(tmpMap[((y+1)*map_width) + (x+2)].id == FLOOR) tc++;
 
-    if(map[((y+2)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x-1)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x+1)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x+2)].id == FLOOR) tc++;
+    if(tmpMap[((y+2)*map_width) + (x-2)].id == FLOOR) tc++;
+    if(tmpMap[((y+2)*map_width) + (x-1)].id == FLOOR) tc++;
+    if(tmpMap[((y+2)*map_width) + (x)].id == FLOOR) tc++;
+    if(tmpMap[((y+2)*map_width) + (x+1)].id == FLOOR) tc++;
+    if(tmpMap[((y+2)*map_width) + (x+2)].id == FLOOR) tc++;
 
     if(i < 1) {
      if(oc>=5 || tc<=7) {
-      map[y*map_width + x].id=FLOOR;
+      tmpMap[y*map_width + x].id=FLOOR;
      } else {
-      map[y*map_width + x].id=TOP;
+      tmpMap[y*map_width + x].id=TOP;
      }
     } else {
      if(oc >= 5) {
-      map[y*map_width + x].id=FLOOR;
+      tmpMap[y*map_width + x].id=FLOOR;
      } else {
-      map[y*map_width + x].id=TOP;
+      tmpMap[y*map_width + x].id=TOP;
      }
     }
    }
   }
  }
  for(int y = 0; y < map_height; y++) {
-  task_count++;
-  map[y*map_width].id = TOP;
-  map[y*map_width + 1].id = TOP;
-  map[y*map_width + map_width-2].id = TOP;
-  map[y*map_width + map_width-1].id = TOP;
+  tmpMap[y*map_width].id = TOP;
+  tmpMap[y*map_width + 1].id = TOP;
+  tmpMap[y*map_width + map_width-2].id = TOP;
+  tmpMap[y*map_width + map_width-1].id = TOP;
   int gt = rand() % 300;
-  if(gt == 1) {map[y*map_width + map_width-2].id = GATE; map[y*map_width + map_width-1].id = GATE;}
-  if(gt == 2) {map[y*map_width + 1].id = GATE; map[y*map_width + 1].id = GATE;}
+  if(gt == 1) {tmpMap[y*map_width + map_width-2].id = GATE; tmpMap[y*map_width + map_width-1].id = GATE;}
+  if(gt == 2) {tmpMap[y*map_width + 1].id = GATE; tmpMap[y*map_width + 1].id = GATE;}
  }
  for(int x = 0; x < map_width; x++) {
-  task_count++;
-  map[x].id = TOP;
-  map[map_width + x].id = TOP;
-  map[x + ((map_width-1)*(map_height-1))].id = TOP;
-  map[x + ((map_width)*(map_height-1))].id = TOP;
+  tmpMap[x].id = TOP;
+  tmpMap[map_width + x].id = TOP;
+  tmpMap[x + ((map_width-1)*(map_height-1))].id = TOP;
+  tmpMap[x + ((map_width)*(map_height-1))].id = TOP;
   int gt = rand() % 300;
-  if(gt == 1) {map[x].id = GATE; map[x + ((map_width-1)*(map_height-1))].id = GATE;}
-  if(gt == 2) {map[map_width + x].id = GATE; map[x + ((map_width)*(map_height-1))].id = GATE;}
+  if(gt == 1) {tmpMap[x].id = GATE; tmpMap[x + ((map_width-1)*(map_height-1))].id = GATE;}
+  if(gt == 2) {tmpMap[map_width + x].id = GATE; tmpMap[x + ((map_width)*(map_height-1))].id = GATE;}
  }
 
  for(int y = 2; y < map_height-2; y++) {
- task_count++;
   for(int x = 2; x < map_width-2; x++) {
-   task_count++;
    if(flood(x, y, floodCount)) floodCount++;
   }
  }
@@ -475,13 +498,10 @@ void genMap() {
  int fc=0;
  int maxfc=0;
  for(int i = 0; i < floodCount; i++) {
-  task_count++;
   int count = 0;
   for(int y = 2; y < map_height-2; y++) {
-   task_count++;
    for(int x = 2; x < map_width-2; x++) {
-   task_count++;
-    if(map[y*map_width + x].id == FLOOR) {
+    if(tmpMap[y*map_width + x].id == FLOOR) {
      if(count > maxfc) {fc=i;maxfc=count;}
      count++;
     }
@@ -489,42 +509,34 @@ void genMap() {
   }
  }
  for(int y = 2; y < map_height-2; y++) {
-  task_count++;
   for(int x = 2; x < map_width-2; x++) {
-   task_count++;
-   if(map[y*map_width + x].tick != fc+1) map[y*map_width + x].id = TOP;
+   if(tmpMap[y*map_width + x].tick != fc+1) tmpMap[y*map_width + x].id = TOP;
   }
  }
 
  for(int y = 1; y < map_height-2; y++) {
-  task_count++;
   for(int x = 2; x < map_width-2; x++) {
-   task_count++;
-   if(map[y*map_width + x].id == TOP && map[((y+1)*map_width) + x].id == FLOOR && map[((y-1)*map_width) + x].id == TOP) {
-    map[y*map_width + x].id = WALL;
-   } else if (map[y*map_width + x].id == TOP && map[((y+1)*map_width) + x].id == FLOOR && map[((y+2)*map_width) + x].id == FLOOR) {
-    map[((y+1)*map_width) + x].id = WALL;
+   if(tmpMap[y*map_width + x].id == TOP && tmpMap[((y+1)*map_width) + x].id == FLOOR && tmpMap[((y-1)*map_width) + x].id == TOP) {
+    tmpMap[y*map_width + x].id = WALL;
+   } else if (tmpMap[y*map_width + x].id == TOP && tmpMap[((y+1)*map_width) + x].id == FLOOR && tmpMap[((y+2)*map_width) + x].id == FLOOR) {
+    tmpMap[((y+1)*map_width) + x].id = WALL;
    }
   }
  }
 
  for(int y = 1; y < map_height-2; y++) {
-  task_count++;
   for(int x = 2; x < map_width-2; x++) {
-   task_count++;
    int t = rand() % 2000;
-   if(map[y*map_width + x].id == FLOOR && t < 4) plantTree(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
+   if(tmpMap[y*map_width + x].id == FLOOR && t < 4) plantTree(x, y, rand() % 5 + 2);//tmpMap[y*map_width + x].id = TREE;
    t = rand() % 2000;
-   if(map[y*map_width + x].id == FLOOR && t < 4) laySnow(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
+   if(tmpMap[y*map_width + x].id == FLOOR && t < 4) laySnow(x, y, rand() % 5 + 2);//tmpMap[y*map_width + x].id = TREE;
   }
  }
  for(int y = 2; y < map_height-2; y++) {
-  task_count++;
   for(int x = 2; x < map_width-2; x++) {
-  task_count++;
    if(!spawnSet) {
-    if(map[y*map_width + x].id == FLOOR) {
-     if(map[y*map_width + x-1].id == FLOOR && map[y+1*map_width + x].id == FLOOR && map[y+1*map_width + x-1].id == FLOOR) {
+    if(tmpMap[y*map_width + x].id == FLOOR) {
+     if(tmpMap[y*map_width + x-1].id == FLOOR && tmpMap[y+1*map_width + x].id == FLOOR && tmpMap[y+1*map_width + x-1].id == FLOOR) {
       if(rand() % 100 == 1) {
        spawn.x=x;spawn.y=y;
        spawnSet=true;
@@ -535,77 +547,75 @@ void genMap() {
   }
  }
  for(int y = 0; y < map_height; y++) {
-  task_count++;
   for(int x = 0; x < map_width; x++) {
-   task_count++;
-   if(map[y*map_width + x].id == FLOOR || map[y*map_width + x].id == TREE) {
-    if(y>0 && map[(y-1)*map_width + x].id == WALL) {
-     if(y>0 && x>0 && map[(y-1)*map_width + x-1].id != WALL && map[(y-1)*map_width + x-1].id != TOP) {
-      map[y*map_width + x].frame = 12;
-     } else if(y>0 && x<map_width && map[(y-1)*map_width + x+1].id != WALL && map[(y-1)*map_width + x+1].id != TOP) {
-      map[y*map_width + x].frame = 14;
+   if(tmpMap[y*map_width + x].id == FLOOR || tmpMap[y*map_width + x].id == TREE) {
+    if(y>0 && tmpMap[(y-1)*map_width + x].id == WALL) {
+     if(y>0 && x>0 && tmpMap[(y-1)*map_width + x-1].id != WALL && tmpMap[(y-1)*map_width + x-1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 12;
+     } else if(y>0 && x<map_width && tmpMap[(y-1)*map_width + x+1].id != WALL && tmpMap[(y-1)*map_width + x+1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 14;
      } else {
-      map[y*map_width + x].frame = 13;
+      tmpMap[y*map_width + x].frame = 13;
      }
     } else {
-     map[y*map_width + x].frame = 15;
+     tmpMap[y*map_width + x].frame = 15;
     }
-    if(map[(y-1)*map_width + x].frame == 21) map[y*map_width + x].frame=22;
-   } else if(map[y*map_width + x].id == SNOW) {
-    map[y*map_width + x].frame = 23;
-   } else if(map[y*map_width + x].id == WALL) {
-    if(x>0 && map[y*map_width + x-1].id == FLOOR || map[y*map_width + x-1].id == TREE) {
-     map[y*map_width + x].frame = 9;
-    } else if(x<map_width && map[y*map_width + x+1].id == FLOOR || map[y*map_width + x+1].id == TREE) {
-     map[y*map_width + x].frame = 11;
+    if(tmpMap[(y-1)*map_width + x].frame == 21) tmpMap[y*map_width + x].frame=22;
+   } else if(tmpMap[y*map_width + x].id == SNOW) {
+    tmpMap[y*map_width + x].frame = 23;
+   } else if(tmpMap[y*map_width + x].id == WALL) {
+    if(x>0 && tmpMap[y*map_width + x-1].id == FLOOR || tmpMap[y*map_width + x-1].id == TREE) {
+     tmpMap[y*map_width + x].frame = 9;
+    } else if(x<map_width && tmpMap[y*map_width + x+1].id == FLOOR || tmpMap[y*map_width + x+1].id == TREE) {
+     tmpMap[y*map_width + x].frame = 11;
     } else {
-     map[y*map_width + x].frame = 10;
+     tmpMap[y*map_width + x].frame = 10;
     }
-    if(map[(y-1)*map_width + x].frame == 20) map[y*map_width + x].frame=21;
-   } else if(map[y*map_width + x].id == TOP) {
-    if(y>0 && map[(y-1)*map_width + x].id != TOP) {
-     if(x>0 && map[y*map_width + x-1].id != TOP) {
-      map[y*map_width + x].frame = 0;
-     } else if(x<map_width && map[y*map_width + x+1].id != TOP) {
-      map[y*map_width + x].frame = 2;
+    if(tmpMap[(y-1)*map_width + x].frame == 20) tmpMap[y*map_width + x].frame=21;
+   } else if(tmpMap[y*map_width + x].id == TOP) {
+    if(y>0 && tmpMap[(y-1)*map_width + x].id != TOP) {
+     if(x>0 && tmpMap[y*map_width + x-1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 0;
+     } else if(x<map_width && tmpMap[y*map_width + x+1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 2;
      } else {
-      map[y*map_width + x].frame = 1;
+      tmpMap[y*map_width + x].frame = 1;
      }
-    } else if(y<map_height && map[(y+1)*map_width + x].id != TOP) {
-     if(x>0 && map[y*map_width + x-1].id != TOP) {
-      map[y*map_width + x].frame = 6;
-     } else if(x<map_width && map[y*map_width + x+1].id != TOP) {
-      map[y*map_width + x].frame = 8;
+    } else if(y<map_height && tmpMap[(y+1)*map_width + x].id != TOP) {
+     if(x>0 && tmpMap[y*map_width + x-1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 6;
+     } else if(x<map_width && tmpMap[y*map_width + x+1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 8;
      } else {
-      map[y*map_width + x].frame = 7;
+      tmpMap[y*map_width + x].frame = 7;
      }
     } else {
-     if(x>0 && map[y*map_width + x-1].id != TOP) {
-      map[y*map_width + x].frame = 3;
-     } else if(x<map_width && map[y*map_width + x+1].id != TOP) {
-      map[y*map_width + x].frame = 5;
+     if(x>0 && tmpMap[y*map_width + x-1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 3;
+     } else if(x<map_width && tmpMap[y*map_width + x+1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 5;
      } else {
-      map[y*map_width + x].frame = 4;
+      tmpMap[y*map_width + x].frame = 4;
      }
     }
    }
-   if(x>0 && y>0 and x<map_width && y<map_height && map[y*map_width + x].id == TOP) {
-    if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP && map[y*map_width + x-1].id != TOP && map[y*map_width + x+1].id != TOP) {
-      map[y*map_width + x].frame = 20;
-      //if(y-1>0){ std::cout<<"x"<<std::endl;map[((y-1)*map_width) + x].frame = 21;}
-      //if(y-2>2) {std::cout<<"x"<<std::endl;map[((y-2)*map_width) + x].frame = 22;}
+   if(x>0 && y>0 and x<map_width && y<map_height && tmpMap[y*map_width + x].id == TOP) {
+    if(tmpMap[(y-1)*map_width + x].id != TOP && tmpMap[(y+1)*map_width + x].id != TOP && tmpMap[y*map_width + x-1].id != TOP && tmpMap[y*map_width + x+1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 20;
+      //if(y-1>0){ std::cout<<"x"<<std::endl;tmpMap[((y-1)*map_width) + x].frame = 21;}
+      //if(y-2>2) {std::cout<<"x"<<std::endl;tmpMap[((y-2)*map_width) + x].frame = 22;}
       //std::cout << x  << " " << y << std::endl;
-    } else if(map[(y-1)*map_width + x].id != TOP && map[(y+1)*map_width + x].id != TOP) {
-     if(map[y*map_width + x-1].id != TOP) {
-      map[y*map_width + x].frame = 16;
-     } else if(map[y*map_width + x+1].id != TOP) {
-      map[y*map_width + x].frame = 17;
+    } else if(tmpMap[(y-1)*map_width + x].id != TOP && tmpMap[(y+1)*map_width + x].id != TOP) {
+     if(tmpMap[y*map_width + x-1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 16;
+     } else if(tmpMap[y*map_width + x+1].id != TOP) {
+      tmpMap[y*map_width + x].frame = 17;
      }
-    } else if (map[y*map_width + x-1].id != TOP && map[y*map_width + x+1].id != TOP) {
-     if(map[(y-1)*map_width + x].id != TOP) {
-      map[y*map_width + x].frame = 19;
-     } else if(map[(y+1)*map_width + x].id != TOP) {
-      map[y*map_width + x].frame = 18;
+    } else if (tmpMap[y*map_width + x-1].id != TOP && tmpMap[y*map_width + x+1].id != TOP) {
+     if(tmpMap[(y-1)*map_width + x].id != TOP) {
+      tmpMap[y*map_width + x].frame = 19;
+     } else if(tmpMap[(y+1)*map_width + x].id != TOP) {
+      tmpMap[y*map_width + x].frame = 18;
      }
     }
    }
@@ -613,7 +623,44 @@ void genMap() {
  }
 }
 
-void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx, int cy) {
+
+void floorPer() {
+ int c = 0;
+ int wc = 0;
+ for(auto tile : tmpMap) {
+  if(tile.id == FLOOR) c++;
+  if(tile.id == WALL) wc++;
+ }
+ std::cout << ((c*100)/(tmpMap.size()+1) + 1) << std::endl;
+ if(wc == 0 || ((c*100)/(tmpMap.size()+1) + 1) < 30) {
+  std::vector<int> seeds;
+  std::ifstream inFile;
+  inFile.open("res/seeds.txt");
+  if (inFile.is_open()) {
+   std::copy(std::istream_iterator<double>(inFile), std::istream_iterator<double>(), std::back_inserter(seeds));
+   inFile.close();
+   seed = seeds[rand() % seeds.size()];
+   srand(seed);
+   std::cout << "SEED: " << seed << std::endl;
+   genMap();
+   //floorPer();
+  }
+ } else {
+  map = tmpMap;
+ }
+}
+
+void dropShell(int cx, int cy, double angle, int type) {
+ shellTmp.id = 5;
+ shellTmp.dest.x = cx;
+ shellTmp.dest.y = cy;
+ shellTmp.angle = angle;
+ shellTmp.tick = 17;
+ shells.push_back(shellTmp);
+ ammoCount[type]--;
+}
+void fireBullet(int x, int y, double vel, double angle, int id, int type) {
+ playSound(gunSound);
  bulletTmp.id = id;
  bulletTmp.frame = type;
  bulletTmp.dest.x = x;
@@ -621,24 +668,13 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx
  bulletTmp.vel = vel;
  bulletTmp.angle = angle;
  bullets.push_back(bulletTmp);
- //bulletTmp.angle = angle-.4;
- //bullets.push_back(bulletTmp);
- //bulletTmp.angle = angle+.4;
- //bullets.push_back(bulletTmp);
- //bulletTmp.angle = angle-.2;
- //bullets.push_back(bulletTmp);
- //bulletTmp.angle = angle+.2;
- //bullets.push_back(bulletTmp);
- shellTmp.id = 5;
- shellTmp.dest.x = cx;
- shellTmp.dest.y = cy;
- shellTmp.angle = angle;
- shellTmp.tick = 17;
- shells.push_back(shellTmp);
+}
+void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx, int cy) {
+ fireBullet(x,y,vel,angle,id,type);
+ dropShell(cx, cy, angle, type);
 }
 void updateBullets() {
  /*for(int i=0; i<bullets.size(); i++) {
-  task_count++;
   //std::cout << bullet.vel * cos(bullet.angle) << std::endl;
   bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
   bullets[i].dest.y += bullets[i].vel * sin(bullets[i].angle);
@@ -689,11 +725,11 @@ void drawBullets() {
   //std::cout << tmp.dest.x << " " << tmp.dest.y << " " << tmp.dest.w << " " << tmp.dest.h << " " << tmp.src.x << " " << tmp.src.y << " " << tmp.src.w << " " << tmp.src.h << std::endl;
  }
  for(int i=0; i<bullets.size(); i++) {
-  task_count++;
   bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
   bullets[i].dest.y += bullets[i].vel * sin(bullets[i].angle);
   bullets[i].tick--;
   if(bullets[i].tick<0) {
+   //playSound(shotSound);
    bullets.erase(bullets.begin()+i);
    i--;
   }
@@ -757,7 +793,6 @@ void input() {
     if(keystates[SDL_SCANCODE_2]) ammo=1;
     if(keystates[SDL_SCANCODE_3]) ammo=2;
     if(keystates[SDL_SCANCODE_4]) ammo=3;
-    //if(keystates[SDL_SCANCODE_P]) {srand(time(NULL));genMap();}
 
     if(ammo>3) ammo=0;
     if(ammo<0) ammo=3;
@@ -781,6 +816,7 @@ bool lu, ld, ll, lr;
 void update() {
  speed = 16;
  if(inSnow) speed=4;
+ player.lastVel=speed;
  if(collideV) {
   if(lu) player.dest.y+=speed;
   if(ld) player.dest.y-=speed;
@@ -791,7 +827,6 @@ void update() {
   if(ll) player.dest.x+=speed;
   if(lr) player.dest.x-=speed;
  }
- 
  //movement
  if(up) player.dest.y-=speed;
  if(down) player.dest.y+=speed;
@@ -828,9 +863,7 @@ void render() {
   SDL_Delay((1000/setFPS)-timerFPS);
  }
  //std::cout << fps << std::endl;
- //std::cout << 1 << " - " << task_count << std::endl;
  //drawMap();
- //std::cout << "1.5" << " - " << task_count << std::endl;
  //treeObj.dest.x=100;
  //treeObj.dest.y=100;
  //draw(&treeObj);
@@ -841,8 +874,6 @@ void render() {
  player.flip=1;
  if(mouse.x > tmp.dest.x+(tmp.dest.w/2)) player.flip=0;
  //drawRect(tmp, setColor(0, 255, 0));
- 
- //std::cout << 2 << " - " << task_count << std::endl;
 
  collideV = collideH = inSnow = false;
 
@@ -851,7 +882,6 @@ void render() {
  std::vector<int> tmpTreesCnt;
  int count = 0;
  for(auto tile : map) {
-  task_count++;
   tmp20 = tile;
   tmp20.dest.x -= offsetX;
   tmp20.dest.y -= offsetY;
@@ -880,53 +910,52 @@ void render() {
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) {
     obj otmp, otmp2;
     otmp=tmp;
-    if(ll) otmp.dest.x+=speed;
-    if(lr) otmp.dest.x-=speed;
-    if(lu) otmp.dest.y+=speed;
-    if(ld) otmp.dest.y-=speed;
+    if(ll) otmp.dest.x+=player.lastVel;
+    if(lr) otmp.dest.x-=player.lastVel;
+    if(lu) otmp.dest.y+=player.lastVel;
+    if(ld) otmp.dest.y-=player.lastVel;
     otmp2=otmp;
     if(ll) {
      otmp = otmp2;
-     otmp.dest.x-=speed;
+     otmp.dest.x-=player.lastVel;
      if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideH = true;
     } else if(lr) {
      otmp = otmp2;
-     otmp.dest.x+=speed;
+     otmp.dest.x+=player.lastVel;
      if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideH = true;
     }
     if(ld) {
      otmp = otmp2;
-     otmp.dest.y+=speed;
+     otmp.dest.y+=player.lastVel;
      if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideV = true;
     } else if(lu) {
      otmp = otmp2;
-     otmp.dest.y-=speed;
+     otmp.dest.y-=player.lastVel;
      if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideV = true;
     }
     //drawRect(tmp20.dest, setColor(255, 0, 0, 100));
     //drawOutline(tmp20.dest, setColor(255, 0, 0, 255));
    }
   for(int g=0; g<bullets.size(); g++) {
-   task_count++;
    SDL_Rect tmp5 = bullets[g].dest;
    tmp5.x -= offsetX;
    tmp5.y -= offsetY;
    double turn = rand() % 16 - 8;
    //std::cout << turn << std::endl;
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=50;
-   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].frame==1) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].frame==1) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10);}//playSound(ricSound); }
   }
   }// 
   count++;
  }
- draw(footprints);
+ drawWithOffset(footprints);
  for(int i=0; i<tmpTrees.size(); i++) {
-  task_count++;
   tmpTrees[i].dest.x -= offsetX;
   tmpTrees[i].dest.y -= offsetY;
   if(tmpTrees[i].id == TREE && map[tmpTreesCnt[i]+1].id != TOP) {
    treeObj.dest.x = tmpTrees[i].dest.x + ((tmpTreesCnt[i]/map_width)%2)*42;
    treeObj.dest.y = tmpTrees[i].dest.y - (treeObj.dest.h-tile_size) - 3;
+   //if(i==0)std::cout << treeObj.dest.y << std::endl;
 
    treeObj.flip = tmpTrees[i].flip;
    treeObj.src.x = tmpTrees[i].tick * treeObj.src.w;
@@ -939,7 +968,6 @@ void render() {
 
  //draw(&tmp);//player);
  //drawToBuffer(tmp);//player);
- //std::cout << 3 << " - " << task_count << std::endl;
 
  SDL_Point tmpMouse;
  tmpMouse.x = cursor.dest.x + bulletTmp.dest.w;
@@ -950,7 +978,6 @@ void render() {
   tmpMouse.y-=bulletTmp.dest.h;
  }
 
- //std::cout << 4 << " - " << task_count << std::endl;
 
  tmp2 = gun;
  tmp2.dest.x = tmp.dest.x + 30;
@@ -979,16 +1006,42 @@ void render() {
  tmp.child=&tmp2;
  drawToBuffer(tmp);//player);
  //merge(tmp, tmp2); //////////////////////////////////////////////////////////////////////////////////
- //std::cout << 5 << " - " << task_count << std::endl;
 
  float xDistance = mouse.x - tmp2.dest.x;
  float yDistance = mouse.y - tmp2.dest.y;
  double angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
  gun.angle=tmp2.angle=angleToTurn;
 
+ if(lu || ld || ll || lr) {
+  footTick++;
+ } else {
+  footTick--;
+ }
+ if(footTick>3) {
+  footTick=0;
+  footTmp.dest.x = player.dest.x + (player.dest.w/2) - (footTmp.dest.w/2);
+  footTmp.dest.y = player.dest.y + player.dest.h - footTmp.dest.h;
+  footTmp.angle = angleToTurn;
+  if(footTmp.src.x==0) {
+   footTmp.src.x=footTmp.src.w;
+  } else {
+   footTmp.src.x=0;
+  }
+  footprints.push_back(footTmp);
+ }
+ if(footTick<0)footTick=0;
+ for(int f=0; f<footprints.size(); f++) {
+  footprints[f].tick--;
+  if(footprints[f].tick<0) {
+   footprints.erase(footprints.begin()+f);
+   f--;
+  }
+ }
+
+
  xDistance = tmpMouse.x - tmp2.dest.x;
  yDistance = tmpMouse.y - tmp2.dest.y + 15;
- angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
+ //angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
 
  int px = tmp2.dest.x + gun.dest.w * cos(atan2(yDistance, xDistance));
  int py = (tmp2.dest.y+15) + gun.dest.w * sin(atan2(yDistance, xDistance));
@@ -997,20 +1050,29 @@ void render() {
  //if(fire) {// && !lfire) {
  if(ammoCount[ammo] <= 0) fire=0;
  if(fire) {// && !lfire) {
-  int bType = rand() % 5;
   int bX, bY;
   double bA = (atan2(yDistance, xDistance));
   int bV = 44;
   bX = (bV * cos(bA));
   bY = (bV * sin(bA));
-  bType = ammo;
-  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
-  //fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
-  //fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
-  //fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
-  //fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType, tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY);
+  //int bType = rand() % 5;
+  int bType = ammo;
+  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType);
+  if(bType == 2) {
+   fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType);
+  }
+  if(bType == 3) {
+   //fireBullet(px + offsetX, py + offsetY, bV, bA-.3, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA-5, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+5, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA-10, 1, bType);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+10, 1, bType);
+  }
+  dropShell(tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY, bA, bType);
   cursor.frame=1;
-  ammoCount[ammo]--;
  } else {
   if(cursor.frame==2) cursor.frame=0;
   if(cursor.frame==1) cursor.frame=2;
@@ -1022,13 +1084,11 @@ void render() {
  wolf.dest.y=player.dest.y+100-offsetY;
  wolf.flip = player.flip;
  drawToBuffer(wolf);
- //std::cout << 5 << " - " << task_count << std::endl;
 
  //draw(buffer);buffer.clear();
  drawBuffer();
 
  drawBullets();
- //std::cout << 6 << " - " << task_count << std::endl;
 
  drawUI();
 
@@ -1036,11 +1096,9 @@ void render() {
  cursor.dest.y = mouse.y - cursor.dest.h/2; //+ bulletTmp.dest.h;
  cursor.src.x = cursor.frame * cursor.src.w;
  draw(&cursor);
- //std::cout << 7 << " - " << task_count << std::endl;
 
 
  //write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
- write(std::to_string(fps), 50, 50);
 
 
  SDL_RenderPresent(renderer);
@@ -1063,8 +1121,13 @@ void init() {
  setBkg(51, 73, 95);
  //setBkg(255, 0, 0);
  font_color = black; //setColor(0, 255, 255);
+ initAudio();
  genMap();
- while(floorPer() < 30) genMap();
+ floorPer();
+ std::ofstream out;
+ out.open("res/seeds.txt", std::ios::app);
+ std::string str = std::to_string(seed) + "\n";
+ out << str;
  offsetX=map_width/2 * tile_size - WIDTH/2;
  offsetY=map_height/2 * tile_size - HEIGHT/2;
  treeObj.dest.w=tile_size;treeObj.src.w=43;
@@ -1105,8 +1168,17 @@ void init() {
  cursor.frame=0;
  screenRect.x=screenRect.y=0;
  screenRect.x=WIDTH;screenRect.y=HEIGHT;
+ footTmp.dest.w=50;
+ footTmp.dest.h=60;
+ footTmp.src.x=0;
+ footTmp.src.y=0;
+ footTmp.src.w=10;
+ footTmp.src.h=15;
+ footTmp.img = setImage("res/footprints.png");
+ footTmp.tick = 300;
 }
 void quit() {
+ quitSounds();
  TTF_CloseFont(font);
  SDL_DestroyRenderer(renderer);
  SDL_DestroyWindow(window);
@@ -1129,8 +1201,6 @@ int main(int argc, char **argv) {
   input();
   update();
   render();
-  //std::cout << task_count << " : " << fps << std::endl;
-  task_count = 0;
  }
  quit();
  return 1;
