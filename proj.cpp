@@ -130,6 +130,7 @@ struct obj {
  int health;
  int extra;
  bool extraBool;
+ //int alpha=255;
 } player, gun, wolf, cursor, gunUI, shellIcon, UI;
 
 obj tmpEnemy;
@@ -1075,6 +1076,9 @@ void render() {
  if(footTick<0)footTick=0;
  for(int f=0; f<footprints.size(); f++) {
   footprints[f].tick--;
+  if(footprints[f].tick<200)footprints[f].src.y=footprints[f].src.h * 1;
+  if(footprints[f].tick<100)footprints[f].src.y=footprints[f].src.h * 2;
+  if(footprints[f].tick<40)footprints[f].src.y=footprints[f].src.h * 3;
   if(footprints[f].tick<0) {
    footprints.erase(footprints.begin()+f);
    f--;
@@ -1170,6 +1174,7 @@ void init() {
  renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
  SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
+ SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
  TTF_Init();
  font_size = 16;
  font = TTF_OpenFont("res/font.ttf", font_size);
