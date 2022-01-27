@@ -196,6 +196,8 @@ void write(std::string t, int x, int y) {
 std::vector<obj> map, tmpMap;
 
 void draw(obj* o) {
+ if(o->img <= sizeof images && o->src.x<1000) {
+ //std::cout << renderer << " " << o->img << " src:" << o->src.x << "," << o->src.y << " " << o->src.w << "x" << o->src.h << " dest:" << o->dest.x << "," << o->dest.y << " " << o->dest.w << "x" << o->dest.h << " " << o->angle << "* " << o->center.x << "," << o->center.y << " " << o->flip << " " << o->flipV << " " << o->rotateOnCenter << std::endl;
  //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
  if(o->flip) {
   if(o->rotateOnCenter) {
@@ -215,6 +217,7 @@ void draw(obj* o) {
   } else {
    SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_NONE);
   }
+ }
  }
 }
 void drawDebug(obj* o) {
