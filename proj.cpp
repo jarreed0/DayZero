@@ -127,7 +127,13 @@ struct obj {
  int frame;
  obj* child;
  bool parent;
-} player, gun, wolf, cursor;
+ int health;
+ int extra;
+ bool extraBool;
+} player, gun, wolf, cursor, gunUI, shellIcon, UI;
+
+obj tmpEnemy;
+std::vector<obj> enemies;
 
 std::vector<obj> footprints;
 int footTick = 0;
@@ -306,14 +312,23 @@ void drawBuffer() {
 }
 
 int ammo = 0;
-int ammoCount [4] = {999, 999, 999, 999};
+int mod = 0;
+int mod2 = 0;
+int ammoCount [5] = {999, 999, 999, 999, 999};
+std::string mods [6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
+std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce", "Random"};
 void drawUI() {
- for(int a=0; a < 4; a++) {
-  write("Ammo #" + std::to_string(a+1) + ": " + std::to_string(ammoCount[a]), 40, a*40 + 40);
+ gunUI.src=gun.src;
+ draw(&UI);
+ draw(&gunUI);
+ for(int a=0; a < 5; a++) {
+  write(std::to_string(ammoCount[a]), 220, a*23 + 35);
   //write("Ammo #" + std::to_string(a+1) + ": ", 40, a*40 + 40);
  }
- write("Holding: " + std::to_string(ammo+1), 40, 4*40 + 40);
- write(std::to_string(fps), 40, 5*40 + 40);
+ //write("Holding: " + std::to_string(ammo+1), 40, 5*40 + 40);
+ write(mods[mod], 193, 6*23 + 16);
+ write(mods2[mod2], 193, 7*23 + 20);
+ write(std::to_string(fps), 22, 5*40 + 28);
 }
 
 
@@ -631,7 +646,7 @@ void floorPer() {
   if(tile.id == FLOOR) c++;
   if(tile.id == WALL) wc++;
  }
- std::cout << ((c*100)/(tmpMap.size()+1) + 1) << std::endl;
+ //std::cout << ((c*100)/(tmpMap.size()+1) + 1) << std::endl;
  if(wc == 0 || ((c*100)/(tmpMap.size()+1) + 1) < 30) {
   std::vector<int> seeds;
   std::ifstream inFile;
@@ -642,12 +657,14 @@ void floorPer() {
    seed = seeds[rand() % seeds.size()];
    srand(seed);
    std::cout << "SEED: " << seed << std::endl;
+   map.clear();
+   tmpMap.clear();
    genMap();
    //floorPer();
   }
- } else {
-  map = tmpMap;
+ //} else {
  }
+ map = tmpMap;
 }
 
 void dropShell(int cx, int cy, double angle, int type) {
@@ -659,7 +676,8 @@ void dropShell(int cx, int cy, double angle, int type) {
  shells.push_back(shellTmp);
  ammoCount[type]--;
 }
-void fireBullet(int x, int y, double vel, double angle, int id, int type) {
+//bType, bDmg, bnc);
+void fireBullet(int x, int y, double vel, double angle, int id, int type, int dmg, int bnc) {
  playSound(gunSound);
  bulletTmp.id = id;
  bulletTmp.frame = type;
@@ -667,10 +685,13 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type) {
  bulletTmp.dest.y = y;
  bulletTmp.vel = vel;
  bulletTmp.angle = angle;
+ bulletTmp.extra = dmg;
+ bulletTmp.extraBool = bnc;
  bullets.push_back(bulletTmp);
 }
-void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx, int cy) {
- fireBullet(x,y,vel,angle,id,type);
+//void fireBullet(int x, int y, double vel, double angle, int id, int type, int speed, int dmg, int bnc) {
+void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx, int cy, int dmg, int bnc) {
+ fireBullet(x,y,vel,angle,id,type,dmg,bnc);
  dropShell(cx, cy, angle, type);
 }
 void updateBullets() {
@@ -773,6 +794,8 @@ Uint32 mousestate;
 void input() {
     left=right=down=up=fire=0;
     SDL_Event e;
+    int scroll = 0;
+    int select = -1;
     keystates = SDL_GetKeyboardState(NULL);
     while(SDL_PollEvent(&e)) {
      if(e.type == SDL_QUIT) running=false;
@@ -780,8 +803,8 @@ void input() {
       if(e.button.button == SDL_BUTTON_LEFT) fire=1;
      }*/
      if(e.type == SDL_MOUSEWHEEL) {
-      if(e.wheel.y>0) ammo++;
-      if(e.wheel.y<0) ammo--;
+      if(e.wheel.y>0) scroll=1;
+      if(e.wheel.y<0) scroll=-1;
      }
     }
     if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
@@ -789,17 +812,33 @@ void input() {
     if(keystates[SDL_SCANCODE_S] || keystates[SDL_SCANCODE_DOWN]) down=1;
     if(keystates[SDL_SCANCODE_A] || keystates[SDL_SCANCODE_LEFT]) left=1;
     if(keystates[SDL_SCANCODE_D] || keystates[SDL_SCANCODE_RIGHT]) right=1;
-    if(keystates[SDL_SCANCODE_1]) ammo=0;
-    if(keystates[SDL_SCANCODE_2]) ammo=1;
-    if(keystates[SDL_SCANCODE_3]) ammo=2;
-    if(keystates[SDL_SCANCODE_4]) ammo=3;
-
-    if(ammo>3) ammo=0;
-    if(ammo<0) ammo=3;
+    if(keystates[SDL_SCANCODE_1]) select=0;
+    if(keystates[SDL_SCANCODE_2]) select=1;
+    if(keystates[SDL_SCANCODE_3]) select=2;
+    if(keystates[SDL_SCANCODE_4]) select=3;
+    if(keystates[SDL_SCANCODE_5]) select=4;
+    if(keystates[SDL_SCANCODE_6]) select=5;
+    if(keystates[SDL_SCANCODE_7]) select=6;
+    if(keystates[SDL_SCANCODE_LSHIFT]) {
+     if(select != -1) mod = select;
+     mod+=scroll;
+    } else if(keystates[SDL_SCANCODE_LCTRL]) {
+     if(select != -1) mod2 = select;
+     mod2+=scroll;
+    } else {
+     if(select != -1) ammo = select;
+     ammo+=scroll;
+    }
 
     mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
     if(mousestate == SDL_BUTTON_LEFT) fire=1;
-    //std::cout << ms << std::endl;
+
+    if(ammo>4) ammo=0;
+    if(ammo<0) ammo=4;
+    if(mod>5) mod=0;
+    if(mod<0) mod=5;
+    if(mod2>4) mod2=0;
+    if(mod2<0) mod2=4;
 }
 
 int lengthSquare(int x1, int x2, int y1, int y2){
@@ -810,7 +849,7 @@ int lengthSquare(int x1, int x2, int y1, int y2){
     return xDiff*xDiff + yDiff*yDiff;
 }
 
-bool collideH, collideV, inSnow;
+bool collideH, collideV, inSnow, wallCollide;
 int speed;
 bool lu, ld, ll, lr;
 void update() {
@@ -875,7 +914,7 @@ void render() {
  if(mouse.x > tmp.dest.x+(tmp.dest.w/2)) player.flip=0;
  //drawRect(tmp, setColor(0, 255, 0));
 
- collideV = collideH = inSnow = false;
+ collideV = collideH = inSnow = wallCollide = false;
 
  obj tmp20;
  std::vector<obj> tmpTrees;
@@ -891,6 +930,7 @@ void render() {
    tmp20.src.x=tmp20.src.y=0;
    tmp20.src.w=20;tmp20.src.h=20;
    if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP || tile.id == SNOW) {
+    if(tile.id == WALL && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) wallCollide = true;
     tmp20.src.x = tmp20.frame * tmp20.src.w;
     //if(tile.frame >= 3) {
      draw(&tmp20);
@@ -942,8 +982,8 @@ void render() {
    tmp5.y -= offsetY;
    double turn = rand() % 16 - 8;
    //std::cout << turn << std::endl;
-   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=50;
-   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].frame==1) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10);}//playSound(ricSound); }
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=80;
+   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].extraBool) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10);}//playSound(ricSound); }
   }
   }// 
   count++;
@@ -979,12 +1019,14 @@ void render() {
  }
 
 
+ gun.src.y = gun.src.h * ammo;
+ gun.src.x = gun.src.w * mod;
  tmp2 = gun;
  tmp2.dest.x = tmp.dest.x + 30;
  if(tmp2.flipV) tmp2.dest.x += 12;
  double dot = tmp2.dest.x*tmpMouse.x + tmp2.dest.y*tmpMouse.y;
  double det = tmp2.dest.y*tmpMouse.y - tmp2.dest.x*tmpMouse.x;
- tmp2.dest.y = tmp.dest.y + tmp.dest.h/2.3 + (round(tmp2.tick/200)*2);
+ tmp2.dest.y = tmp.dest.y + tmp.dest.h/3 + (round(tmp2.tick/200)*2);
  if(fire && !lfire) {
   tmp2.dest.y-=4;
   if(tmp2.flipV) {
@@ -1027,7 +1069,8 @@ void render() {
   } else {
    footTmp.src.x=0;
   }
-  footprints.push_back(footTmp);
+  //make sure not touching wall/top
+  if(!wallCollide && !collideV && !collideH) footprints.push_back(footTmp);
  }
  if(footTick<0)footTick=0;
  for(int f=0; f<footprints.size(); f++) {
@@ -1052,24 +1095,38 @@ void render() {
  if(fire) {// && !lfire) {
   int bX, bY;
   double bA = (atan2(yDistance, xDistance));
-  int bV = 44;
+  int bV = 40;
   bX = (bV * cos(bA));
   bY = (bV * sin(bA));
   //int bType = rand() % 5;
   int bType = ammo;
-  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType);
-  if(bType == 2) {
-   fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType);
+  //std::string mods [6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
+  //std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce"};
+  int bDmg = 0;
+  bool bnc = 0;
+  if(mods[mod] == "Velocity") bV+=10;
+  if(mods2[mod2] == "Velocity") bV+=10;
+  if(mods[mod] == "Damage") bDmg+=8;
+  if(mods2[mod2] == "Damage") bDmg+=8;
+  if(mods[mod] == "Bounce" || mods2[mod2] == "Bounce") bnc=1;
+  if(mods2[mod2] == "Random") ammo = rand() % 5;
+  if(bType == 1) bnc=1;
+  if(bType == 2) bDmg+=8;
+  if(bType == 3) {bDmg+=4;bV+=4;}
+  if(bType == 3) bV+=8;
+  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType, bDmg, bnc);
+  if(mods[mod] == "Burst") {
+   fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType, bDmg, bnc);
   }
-  if(bType == 3) {
-   //fireBullet(px + offsetX, py + offsetY, bV, bA-.3, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA-5, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+5, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA-10, 1, bType);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+10, 1, bType);
+  if(mods[mod] == "Wave") {
+   //fireBullet(px + offsetX, py + offsetY, bV, bA-.3, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA-5, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+5, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA-10, 1, bType, bDmg, bnc);
+   fireBullet(px + offsetX, py + offsetY, bV, bA+10, 1, bType, bDmg, bnc);
   }
   dropShell(tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY, bA, bType);
   cursor.frame=1;
@@ -1120,7 +1177,7 @@ void init() {
  SDL_ShowCursor(SDL_DISABLE);
  setBkg(51, 73, 95);
  //setBkg(255, 0, 0);
- font_color = black; //setColor(0, 255, 255);
+ font_color = white; //setColor(0, 255, 255);
  initAudio();
  genMap();
  floorPer();
@@ -1145,12 +1202,12 @@ void init() {
  player.img = setImage("res/player.png");
  //std::cout << player.dest.w << std::endl;
  //std::cout << player.dest.h << std::endl;
- gun.img = setImage("res/gun.png");
+ gun.img = setImage("res/raygun.png");//gun.png");
  gun.src.x=gun.src.y=0;
- gun.src.w=9;
- gun.src.h=3;
+ gun.src.w=14;//9;
+ gun.src.h=5;//3;
  gun.dest.w=tile_size*1.1;
- gun.dest.h=gun.dest.w/3;
+ gun.dest.h=gun.dest.w/2;
  gun.center.y=gun.dest.h/2;
  gun.rotateOnCenter = true;
  wolf.img = setImage("res/wolf.png");
@@ -1176,6 +1233,16 @@ void init() {
  footTmp.src.h=15;
  footTmp.img = setImage("res/footprints.png");
  footTmp.tick = 300;
+ gunUI=gun;
+ gunUI.angle = -20;
+ //gunUI.flip=1;
+ gunUI.dest.x=43;gunUI.dest.y=96;
+ gunUI.dest.w=gun.dest.w*1.5;gunUI.dest.h=gun.dest.h*1.5;
+ UI.img = setImage("res/UI.png");
+ UI.src.x=UI.src.y=0;
+ UI.src.w=220;UI.src.h=154;
+ UI.dest.x=UI.dest.y=20;
+ UI.dest.w=250;UI.dest.h=200;
 }
 void quit() {
  quitSounds();
