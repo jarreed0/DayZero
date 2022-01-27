@@ -45,6 +45,7 @@ SDL_Rect screenRect;
 int frameCount, timerFPS, lastFrame, fps;
 
 bool running = 1;
+bool paused, lpaused;
 #define PLAYING 1;
 #define PAUSED 2;
 #define MAIN 3;
@@ -131,7 +132,7 @@ struct obj {
  int extra;
  bool extraBool;
  //int alpha=255;
-} player, gun, wolf, cursor, gunUI, shellIcon, UI;
+} player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI;
 
 obj tmpEnemy;
 std::vector<obj> enemies;
@@ -792,9 +793,9 @@ void initBullet() {
 
 const Uint8 *keystates;
 Uint32 mousestate;
+SDL_Event e;
 void input() {
     left=right=down=up=fire=0;
-    SDL_Event e;
     int scroll = 0;
     int select = -1;
     keystates = SDL_GetKeyboardState(NULL);
@@ -820,6 +821,8 @@ void input() {
     if(keystates[SDL_SCANCODE_5]) select=4;
     if(keystates[SDL_SCANCODE_6]) select=5;
     if(keystates[SDL_SCANCODE_7]) select=6;
+    if(keystates[SDL_SCANCODE_P]) {if(!lpaused){paused=true;}lpaused=1;
+    }else{lpaused=0;}
     if(keystates[SDL_SCANCODE_LSHIFT]) {
      if(select != -1) mod = select;
      mod+=scroll;
@@ -1170,6 +1173,10 @@ void init() {
  srand(seed);
  SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
  if(SDL_Init(SDL_INIT_EVERYTHING) < 0) std::cout << "Failed at SDL_Init()" << std::endl;
+ SDL_DisplayMode DM;
+ SDL_GetCurrentDisplayMode(0, &DM);
+ WIDTH=DM.w;
+ HEIGHT=DM.h;
  window = SDL_CreateWindow(TITLE, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WIDTH, HEIGHT, SDL_WINDOW_SHOWN);
  renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -1248,6 +1255,12 @@ void init() {
  UI.src.w=220;UI.src.h=154;
  UI.dest.x=UI.dest.y=20;
  UI.dest.w=250;UI.dest.h=200;
+ pauseUI.img = setImage("res/pause.png");
+ pauseUI.src.x=pauseUI.src.y=0;
+ pauseUI.src.w=1280;pauseUI.src.h=72;
+ pauseUI.dest.x=pauseUI.dest.y=0;
+ pauseUI.dest.w=DM.w;pauseUI.dest.h=DM.h;
+ paused = 1;
 }
 void quit() {
  quitSounds();
@@ -1270,9 +1283,33 @@ int main(int argc, char **argv) {
    fps=frameCount;
    frameCount=0;
   }
+  if(!paused) {
   input();
   update();
   render();
+  } else {
+   SDL_SetRenderDrawColor(renderer, bkg.r, bkg.g, bkg.b, bkg.a);
+   SDL_RenderClear(renderer);
+   frameCount++;
+   timerFPS = SDL_GetTicks()-lastFrame;
+   if(timerFPS<(1000/setFPS)) {
+    SDL_Delay((1000/setFPS)-timerFPS);
+   }
+   SDL_GetMouseState(&mouse.x, &mouse.y);
+   cursor.dest.x = mouse.x - cursor.dest.w/2;
+   cursor.dest.y = mouse.y - cursor.dest.h/2;
+   cursor.src.x = cursor.frame * cursor.src.w;
+   draw(&pauseUI);
+   draw(&cursor);
+   SDL_RenderPresent(renderer);
+   keystates = SDL_GetKeyboardState(NULL);
+   if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
+   while(SDL_PollEvent(&e)) {
+     if(e.type == SDL_QUIT) running=false;
+   }
+   if(keystates[SDL_SCANCODE_P]) {if(!lpaused){paused=false;}lpaused=1;
+   }else{lpaused=0;}
+  }
  }
  quit();
  return 1;
