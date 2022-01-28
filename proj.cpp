@@ -132,7 +132,7 @@ struct obj {
  int extra;
  bool extraBool;
  //int alpha=255;
-} player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI;
+} player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI, shellSelect, modSelect;
 
 obj tmpEnemy;
 std::vector<obj> enemies;
@@ -319,13 +319,17 @@ void drawBuffer() {
 int ammo = 0;
 int mod = 0;
 int mod2 = 0;
+bool changingMod = false;
 int ammoCount [5] = {999, 999, 999, 999, 999};
 std::string mods [6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
 std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce", "Random"};
 void drawUI() {
  gunUI.src=gun.src;
+ shellSelect.src.y = shellSelect.src.h * ammo;
  draw(&UI);
  draw(&gunUI);
+ draw(&shellSelect);
+ if(changingMod) draw(&modSelect);
  for(int a=0; a < 5; a++) {
   write(std::to_string(ammoCount[a]), 220, a*23 + 35);
   //write("Ammo #" + std::to_string(a+1) + ": ", 40, a*40 + 40);
@@ -824,17 +828,25 @@ void input() {
     if(keystates[SDL_SCANCODE_5]) select=4;
     if(keystates[SDL_SCANCODE_6]) select=5;
     if(keystates[SDL_SCANCODE_7]) select=6;
-    if(keystates[SDL_SCANCODE_P]) {if(!lpaused){paused=true;}lpaused=1;
-    }else{lpaused=0;}
+    if(keystates[SDL_SCANCODE_P]) {
+     if(!lpaused){paused=true;}lpaused=1;
+    } else{
+     lpaused=0;
+    }
+    changingMod = false;
     if(keystates[SDL_SCANCODE_LSHIFT]) {
      if(select != -1) mod = select;
-     mod+=scroll;
+     mod-=scroll;
+     changingMod = true;
+     modSelect.src.y = modSelect.src.h * 5;
     } else if(keystates[SDL_SCANCODE_LCTRL]) {
      if(select != -1) mod2 = select;
-     mod2+=scroll;
-    } else {
+     mod2-=scroll;
+     changingMod = true;
+     modSelect.src.y = modSelect.src.h * 6;
+   } else {
      if(select != -1) ammo = select;
-     ammo+=scroll;
+     ammo-=scroll;
     }
 
     mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
@@ -1264,7 +1276,11 @@ void init() {
  pauseUI.dest.x=pauseUI.dest.y=0;
  pauseUI.dest.w=DM.w;pauseUI.dest.h=DM.h;
  paused = 1;
+ shellSelect = UI;
+ shellSelect.img = setImage("res/select.png");
+ modSelect = shellSelect;
 }
+
 void quit() {
  quitSounds();
  TTF_CloseFont(font);
