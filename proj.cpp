@@ -897,9 +897,17 @@ void update() {
  //player.dest.y = player.coord.y - offsetY;
  //if(mouse.x) player.flip = 1;
  //if(right) player.flip = 0;
- player.tick+=3;
- if(player.tick>199) player.tick=0;
- player.src.x = round(player.tick/200) * player.src.w;
+ if(!up && !down && !left && !right) {
+  player.tick+=3;
+  if(player.tick>199) player.tick=0;
+  player.src.x = round(player.tick/200) * player.src.w;
+ } else {
+  player.tick+=12;
+  if(inSnow)player.tick-=5;
+  if(player.tick>199) player.tick=0;
+  player.src.x = (round(player.tick/100)+3) * player.src.w;
+  //std::cout << player.src.x<<std::endl;
+ }
  //if(left || right) player.src.x = player.src.x + 14;
  gun.center.x=0;
  //if(gun.flipV) gun.center.x=gun.dest.w;
