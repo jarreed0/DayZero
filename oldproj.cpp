@@ -161,7 +161,10 @@ struct obj {
  int extra;
  bool extraBool;
  //int alpha=255;
-} player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI, shellSelect, modSelect, chessTmp, heartTmp;
+} player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI, shellSelect, modSelect;
+
+obj healthPickUp;
+//std::vector<obj> shells;
 
 obj lighting;
 bool dayCycle;
@@ -190,6 +193,24 @@ bool fire = 0;
 obj shellTmp;
 std::vector<obj> shells;
 
+/*void drop(int type, int x, int y) {
+ if(type==6) {
+  //health
+  healthPickUp.dest.x=x;
+  healthPickUp.dest.y=y;
+  shells.push_back(healthPickUp);
+ } else {
+  shellTmp.id = type;
+  //shellPickUp.src.w=8;shellPickUp.src.h=6;
+  shellTmp.src.x = shellTmp.src.w * type;
+  shellTmp.dest.x=800;//x;
+  shellTmp.dest.y=500;//y;
+  //shellPickUp.dest.w=100;
+  //shellPickUp.dest.h=100;
+  shells.push_back(shellTmp);
+ }
+}*/
+
 std::vector<SDL_Texture*> images;
 int setImage(std::string filename) {
  images.push_back(IMG_LoadTexture(renderer, filename.c_str()));
@@ -216,7 +237,7 @@ void write(std::string t, int x, int y) {
  SDL_DestroyTexture(text_texture);
 }
 
-std::vector<obj> map;
+std::vector<obj> map;//, map;
 
 void draw(obj* o) {
  if(o->img <= sizeof images && o->src.x<1000) {
@@ -331,12 +352,9 @@ int ammo = 0;
 int mod = 0;
 int mod2 = 0;
 bool changingMod = false;
-//int ammoCount [5] = {999, 999, 999, 999, 999};
-int ammoCount [5] = {0,0,0,0,0};
+int ammoCount [5] = {999, 999, 999, 999, 999};
 std::string mods [6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
 std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce", "Random"};
-bool modsUnlocked [6] = {1,0,0,0,0,0};
-bool mods2Unlocked [5] = {1,0,0,0,0};
 void drawUI() {
  healthBar.w = maxHealthBar * (player.health / player.maxHealth);
  drawRect(healthBar, setColor(255, 90, 90));
@@ -349,60 +367,21 @@ void drawUI() {
  for(int a=0; a < 5; a++) {
   write(std::to_string(ammoCount[a]), 220, a*23 + 35);
  }
- if(modsUnlocked[mod]) {write(mods[mod], 193, 6*23 + 16);} else {write("Locked", 193, 6*23 + 16);}
- if(mods2Unlocked[mod2]) {write(mods2[mod2], 193, 7*23 + 20);} else {write("Locked", 193, 7*23 + 20);}
+ write(mods[mod], 193, 6*23 + 16);
+ write(mods2[mod2], 193, 7*23 + 20);
  write(std::to_string(fps), 22, 5*40 + 28);
  write(std::to_string(offsetX) + ", " + std::to_string(offsetY), 22, 6*40 + 28);
 }
 
 
-void dropChess(int cx, int cy, int type) {
- chessTmp.id = 5;
- chessTmp.dest.x = cx;
- chessTmp.dest.y = cy;
- chessTmp.tick=50;
- chessTmp.angle=0;
- chessTmp.dest.w=50;
- chessTmp.dest.h=50;
- chessTmp.src.h=10;
- chessTmp.src.w=10;
- shells.push_back(chessTmp);
-}
-void dropHeart(int cx, int cy, int type) {
- heartTmp.id = 6;
- heartTmp.dest.x = cx;
- heartTmp.dest.y = cy;
- heartTmp.tick=type;
- heartTmp.angle=0;
- heartTmp.dest.w=50;
- heartTmp.dest.h=50;
- heartTmp.src.h=10;
- heartTmp.src.w=10;
- shells.push_back(heartTmp);
-}
-void dropShell(int cx, int cy, int type) {
- //std::cout << cx-offsetX <<","<<cy-offsetY<<std::endl;
+void dropShell(int cx, int cy, double angle, int type) {
  shellTmp.id = type;
- shellTmp.dest.x = cx;
- shellTmp.dest.y = cy;
- shellTmp.tick=50;
- shellTmp.angle=0;
- shellTmp.dest.w=30;
- shellTmp.dest.h=22;
- shellTmp.src.h=7;
- shellTmp.src.w=8;
- shells.push_back(shellTmp);
-}
-void dropEmptyShell(int cx, int cy, double angle, int type) {
- /*shellTmp.dest.w=20;
- shellTmp.dest.h=12;
- shellTmp.id = -1;
  shellTmp.dest.x = cx;
  shellTmp.dest.y = cy;
  shellTmp.angle = angle;
  shellTmp.tick = 17;
- shells.push_back(shellTmp);*/
- ammoCount[type]--;
+ shells.push_back(shellTmp);
+ if(type==5) ammoCount[type]--;
 }
 
 int floodCount = 1;
@@ -419,7 +398,6 @@ bool flood(int x, int y, int tick) {
 
   flood(x-1, y, tick);
   flood(x+1, y, tick);
-
   return true;
  }
  return false;
@@ -485,48 +463,49 @@ void genMap() {
 
  int oc, tc;
  for(int i = 0; i < 6; i++) {
-   for(int y = 2; y < map_height-2; y++) {
+  for(int y = 2; y < map_height-2; y++) {
    for(int x = 2; x < map_width-2; x++) {
-    oc = tc = 0;
+     oc = tc = 0;
 
-    if(map[((y-1)*map_width) + (x-1)].id == FLOOR) oc++;
-    if(map[((y-1)*map_width) + x].id == FLOOR) oc++;
-    if(map[((y-1)*map_width) + (x+1)].id == FLOOR) oc++;
-    if(map[(y*map_width) + (x-1)].id == FLOOR) oc++;
-    if(map[(y*map_width) + (x+1)].id == FLOOR) oc++;
-    if(map[((y+1)*map_width) + (x-1)].id == FLOOR) oc++;
-    if(map[((y+1)*map_width) + x].id == FLOOR) oc++;
-    if(map[((y+1)*map_width) + (x+1)].id == FLOOR) oc++;
+     if(map[((y-1)*map_width) + (x-1)].id == FLOOR) oc++;
+     if(map[((y-1)*map_width) + x].id == FLOOR) oc++;
+     if(map[((y-1)*map_width) + (x+1)].id == FLOOR) oc++;
+     if(map[(y*map_width) + (x-1)].id == FLOOR) oc++;
+     if(map[(y*map_width) + (x+1)].id == FLOOR) oc++;
+     if(map[((y+1)*map_width) + (x-1)].id == FLOOR) oc++;
+     if(map[((y+1)*map_width) + x].id == FLOOR) oc++;
+     if(map[((y+1)*map_width) + (x+1)].id == FLOOR) oc++;
 
-    if(map[((y-2)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x-1)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x+1)].id == FLOOR) tc++;
-    if(map[((y-2)*map_width) + (x+2)].id == FLOOR) tc++;
+     if(map[((y-2)*map_width) + (x-2)].id == FLOOR) tc++;
+     if(map[((y-2)*map_width) + (x-1)].id == FLOOR) tc++;
+     if(map[((y-2)*map_width) + (x)].id == FLOOR) tc++;
+     if(map[((y-2)*map_width) + (x+1)].id == FLOOR) tc++;
+     if(map[((y-2)*map_width) + (x+2)].id == FLOOR) tc++;
 
-    if(map[((y-1)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y+1)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y-1)*map_width) + (x+2)].id == FLOOR) tc++;
-    if(map[((y)*map_width) + (x+2)].id == FLOOR) tc++;
-    if(map[((y+1)*map_width) + (x+2)].id == FLOOR) tc++;
+     if(map[((y-1)*map_width) + (x-2)].id == FLOOR) tc++;
+     if(map[((y)*map_width) + (x-2)].id == FLOOR) tc++;
+     if(map[((y+1)*map_width) + (x-2)].id == FLOOR) tc++;
 
-    if(map[((y+2)*map_width) + (x-2)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x-1)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x+1)].id == FLOOR) tc++;
-    if(map[((y+2)*map_width) + (x+2)].id == FLOOR) tc++;
+     if(map[((y-1)*map_width) + (x+2)].id == FLOOR) tc++;
+     if(map[((y)*map_width) + (x+2)].id == FLOOR) tc++;
+     if(map[((y+1)*map_width) + (x+2)].id == FLOOR) tc++;
 
-    if(i < 1) {
+     if(map[((y+2)*map_width) + (x-2)].id == FLOOR) tc++;
+     if(map[((y+2)*map_width) + (x-1)].id == FLOOR) tc++;
+     if(map[((y+2)*map_width) + (x)].id == FLOOR) tc++;
+     if(map[((y+2)*map_width) + (x+1)].id == FLOOR) tc++;
+     if(map[((y+2)*map_width) + (x+2)].id == FLOOR) tc++;
+
+     if(i < 1) {
      if(oc>=5 || tc<=7) {
-      map[y*map_width + x].id=FLOOR;
+       map[y*map_width + x].id=FLOOR;
      } else {
-      map[y*map_width + x].id=TOP;
+       map[y*map_width + x].id=TOP;
      }
-    } else {
-     if(oc >= 5) {
-      map[y*map_width + x].id=FLOOR;
      } else {
+     if(oc >= 5) {
+       map[y*map_width + x].id=FLOOR;
+    } else {
       map[y*map_width + x].id=TOP;
      }
     }
@@ -585,6 +564,14 @@ void genMap() {
    } else if (map[y*map_width + x].id == TOP && map[((y+1)*map_width) + x].id == FLOOR && map[((y+2)*map_width) + x].id == FLOOR) {
     map[((y+1)*map_width) + x].id = WALL;
    }
+  }
+ }
+
+ for(int y = 1; y < map_height-2; y++) {
+  for(int x = 2; x < map_width-2; x++) {
+   int r = rand() % 2000;
+   int t = rand() % 5;
+   //if(map[y*map_width + x].id == FLOOR && r > 1900) dropShell(x*tile_size+(tile_size/2)+offsetX,y*tile_size+(tile_size/2)+offsetY, 0, t);
   }
  }
 
@@ -702,7 +689,7 @@ void floorPer() {
    seed = seeds[rand() % seeds.size()];
    srand(seed);
    std::cout << "SEED: " << seed << std::endl;
-   running=false;
+   //map.clear();
    genMap();
   }
  } else {
@@ -710,13 +697,6 @@ void floorPer() {
   out.open("res/seeds.txt", std::ios::app);
   std::string str = std::to_string(seed) + "\n";
   out << str;
- }
- for(int y = 0; y < map_height; y++) {
-  for(int x = 0; x < map_width; x++) {
-   if(map[y*map_width + x].id == FLOOR && rand() % 100 == 5) {dropShell((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), rand() % 5);
-   } else if(map[y*map_width + x].id == FLOOR && rand() % 1000 == 5) {dropChess((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), 1);
-   } else if(map[y*map_width + x].id == FLOOR && rand() % 500 == 5) {dropHeart((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), rand() % 2);}
-  }
  }
  /*
  std::cout << map_width*map_height << std::endl;
@@ -772,7 +752,7 @@ void input() {
      mod2-=scroll;
      changingMod = true;
      modSelect.src.y = modSelect.src.h * 6;
-    } else {
+   } else {
      if(select != -1) ammo = select;
      ammo-=scroll;
     }
@@ -839,7 +819,6 @@ void update() {
  speed = 16;
  if(inSnow) speed=4;
  if(player.health<=0) player.health=0;
- if(player.health>player.maxHealth) player.health=player.maxHealth;
  //if(inSnow) player.health--;
  player.lastVel=speed;
  if(collideV) {
@@ -858,7 +837,6 @@ void update() {
 
  offsetX = player.dest.x - WIDTH/2 + player.dest.w/2;
  offsetY = player.dest.y - HEIGHT/2 + player.dest.h/4;
-
  if(!up && !down && !left && !right) {
   player.tick+=3;
   if(player.tick>199) player.tick=0;
@@ -893,17 +871,19 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type, int dm
  bulletTmp.extraBool = bnc;
  bullets.push_back(bulletTmp);
 }
+/*void fireBullet(int x, int y, double vel, double angle, int id, int type, int cx, int cy, int dmg, int bnc) {
+ fireBullet(x,y,vel,angle,id,type,dmg,bnc);
+ dropShell(cx, cy, angle, 5);//type);
+}*/
 obj tmpS, tmpB;
 void drawBullets() {
  for(int i=0; i<shells.size(); i++) {
   tmpS = shells[i];
-  tmpS.img = shellTmp.img;
   tmpS.dest.x -= offsetX;
   tmpS.dest.y -= offsetY;
   tmpS.dest.x -= tmpS.dest.w/2;
   tmpS.dest.y -= tmpS.dest.h/2;
-  tmpS.src.x=8*5;
-  if(tmpS.id == -1) {
+  if(tmpS.id == 5) {
    tmpS.dest.y -= sin((tmpS.tick)/6) * (player.dest.h/2);
    int ang = tmpS.angle * 180 / PI;// % 360;
    if(ang < 0) ang+=360;
@@ -914,9 +894,8 @@ void drawBullets() {
    }
    shells[i].tick--;
   }
-  //if(i==0) {std::cout << tmpS.dest.x << ","<< tmpS.dest.y<<std::endl;}
   tmpS.src.x = tmpS.id * tmpS.src.w;
-  if(tmpS.id == -1 && inScreen(tmpS)) {
+  if(inScreen(tmpS)) {
    tmpS.angle = shells[i].angle  * 180 / PI;
    draw(&tmpS);
   }
@@ -948,7 +927,6 @@ void drawBullets() {
   }
  }
 }
-obj shellPickUpTmp;
 void initBullet() {
  bulletTmp.tick=800;
  bulletTmp.dest.w=40;
@@ -963,11 +941,14 @@ void initBullet() {
  bulletTmp.rotateOnCenter = true;
  shellTmp.src.w=8;
  shellTmp.src.h=6;
+ shellTmp.dest.w=20;
+ shellTmp.dest.h=12;
  shellTmp.src.x=shellTmp.src.y=0;
  shellTmp.img = setImage("res/shells.png");
 }
 
 bool lfire = 0;
+obj tmpPU;
 void render() {
  SDL_SetRenderDrawColor(renderer, bkg.r, bkg.g, bkg.b, bkg.a);
  SDL_RenderClear(renderer);
@@ -1002,7 +983,8 @@ void render() {
    if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP || tile.id == SNOW) {
     if(tile.id == WALL && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) wallCollide = true;
     tmp20.src.x = tmp20.frame * tmp20.src.w;
-     draw(&tmp20);
+    draw(&tmp20);
+    //drawDebug(&tmp20);
    } else if(tile.id == GATE) {
     drawRect(tmp20.dest, setColor(200, 90, 90));
    }
@@ -1045,9 +1027,8 @@ void render() {
    double turn = rand() % 16 - 8;
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=80;
    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].extraBool) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10);}//playSound(ricSound); }
-     }
-  }//
-
+    }
+  }
   count++;
  }
  drawWithOffset(footprints);
@@ -1075,8 +1056,7 @@ void render() {
 
 
  gun.src.y = gun.src.h * ammo;
- gun.src.x = 0;
- if(modsUnlocked[mod]) gun.src.x = gun.src.w * mod;
+ gun.src.x = gun.src.w * mod;
  tmp2 = gun;
  tmp2.dest.x = tmp.dest.x + 30;
  if(tmp2.flipV) tmp2.dest.x += 12;
@@ -1098,15 +1078,16 @@ void render() {
    tmp2.dest.x-=8;
   }
  }
+
  tmp.parent=1;
  tmp.child=&tmp2;
  drawToBuffer(tmp);//player);
+
 
  float xDistance = mouse.x - tmp2.dest.x;
  float yDistance = mouse.y - tmp2.dest.y;
  double angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
  gun.angle=tmp2.angle=angleToTurn;
- cursor.angle=gun.angle;
 
  if(lu || ld || ll || lr) {
   footTick++;
@@ -1144,8 +1125,8 @@ void render() {
 
  int px = tmp2.dest.x + gun.dest.w * cos(atan2(yDistance, xDistance));
  int py = (tmp2.dest.y+15) + gun.dest.w * sin(atan2(yDistance, xDistance));
+ //SDL_RenderDrawLine(renderer, px, py, tmpMouse.x, tmpMouse.y);
 
- //if(fire) {// && !lfire) {
  if(ammoCount[ammo] <= 0) fire=0;
  if(fire) {// && !lfire) {
   int bX, bY;
@@ -1158,44 +1139,30 @@ void render() {
   //std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce"};
   int bDmg = 0;
   bool bnc = 0;
-  if(modsUnlocked[mod]) {
-   if(mods[mod] == "Velocity") bV+=10;
-   if(mods[mod] == "Damage") bDmg+=8;
-   if(mods[mod] == "Bounce" || mods2[mod2] == "Bounce") bnc=1;
-  }
-  if(mods2Unlocked[mod2]) {
-   if(mods2[mod2] == "Velocity") bV+=10;
-   if(mods2[mod2] == "Damage") bDmg+=8;
-   if(mods2[mod2] == "Random") {
-    int load;
-    bool jammed=1;
-    while(jammed) {
-     load = rand() % 5;
-     if(ammoCount[load]) {
-      ammo = load;
-      jammed=0;
-     }
-    }
-   }
-  }
+  if(mods[mod] == "Velocity") bV+=10;
+  if(mods2[mod2] == "Velocity") bV+=10;
+  if(mods[mod] == "Damage") bDmg+=8;
+  if(mods2[mod2] == "Damage") bDmg+=8;
+  if(mods[mod] == "Bounce" || mods2[mod2] == "Bounce") bnc=1;
+  if(mods2[mod2] == "Random") ammo = rand() % 5;
   if(bType == 1) bnc=1;
   if(bType == 2) bDmg+=8;
   if(bType == 3) {bDmg+=4;bV+=4;}
   if(bType == 3) bV+=8;
   fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType, bDmg, bnc);
-  if(mods[mod] == "Burst" && modsUnlocked[mod]) {
+  if(mods[mod] == "Burst") {
    fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType, bDmg, bnc);
    fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType, bDmg, bnc);
    fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType, bDmg, bnc);
    fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType, bDmg, bnc);
   }
-  if(mods[mod] == "Wave" && modsUnlocked[mod]) {
+  if(mods[mod] == "Wave") {
    fireBullet(px + offsetX, py + offsetY, bV, bA-5, 1, bType, bDmg, bnc);
    fireBullet(px + offsetX, py + offsetY, bV, bA+5, 1, bType, bDmg, bnc);
    fireBullet(px + offsetX, py + offsetY, bV, bA-10, 1, bType, bDmg, bnc);
    fireBullet(px + offsetX, py + offsetY, bV, bA+10, 1, bType, bDmg, bnc);
   }
-  dropEmptyShell(tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY, bA, bType);
+  dropShell(tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY, bA, 5);//bType);
   cursor.frame=1;
  } else {
   if(cursor.frame==2) cursor.frame=0;
@@ -1211,64 +1178,16 @@ void render() {
 
  drawBuffer();
 
- drawBullets();
+ /*for(int pu=0; pu<shells.size(); pu++) {
+  std::cout << shells[pu].id << " " << shells[pu].frame << " " << shells[pu].img << std::endl;
+  std::cout << shells[pu].src.x << " " << shells[pu].src.y << " " << shells[pu].src.w << " " << shells[pu].src.h << std::endl;
+  std::cout << shells[pu].dest.x << " " << shells[pu].dest.y << " " << shells[pu].dest.w << " " << shells[pu].dest.h << std::endl;
+  std::cout << std::endl;
+ }*/
+ std::cout << shells.size() << std::endl;
+ //draw(&shellTmp);
 
- //shellPickUpTmp.src.h=7;
- //shellPickUpTmp.src.w=8;
- for(int i=0; i<shells.size(); i++) {
-  if(shells[i].id != -1) {
-   shellPickUpTmp = shells[i];
-   shellPickUpTmp.dest.x -= offsetX;
-   shellPickUpTmp.dest.y -= offsetY;
-   shellPickUpTmp.dest.x -= tmpS.dest.w/2;
-   shellPickUpTmp.dest.y -= tmpS.dest.h/2;
-   shellPickUpTmp.src.x=0;
-   //if(i==0) {std::cout << shellPickUpTmp.destx << ","<< shellPickUpTmp.desty<<std::endl;}
-   if(inScreen(shellPickUpTmp)) {
-    if(shells[i].id == 5) {
-     shellPickUpTmp.img = chessTmp.img;
-     drawToBuffer(shellPickUpTmp);
-     if(SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest)) {
-      if(rand() % 2) {
-       bool unlock=1;
-       while(unlock) {
-        int u = rand() % 5 + 1;
-        if(!modsUnlocked[u]) {modsUnlocked[u]=1; mod=u; unlock=0;}
-       }
-      } else {
-       bool unlock=1;
-       while(unlock) {
-        int u = rand() % 4 + 1;
-        if(!mods2Unlocked[u]) {mods2Unlocked[u]=1; mod2=u; unlock=0;}
-       }
-      }
-      shells.erase(shells.begin()+i);
-      i--;
-     }
-    } else if(shells[i].id == 6) {
-     shellPickUpTmp.img = heartTmp.img;
-     shellPickUpTmp.src.x=10*shells[i].tick;
-     drawToBuffer(shellPickUpTmp);
-     //std::cout << player.health << "/" << player.maxHealth << std::endl;
-     if(player.health < player.maxHealth && (SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest))) {
-      player.health+=(shells[i].tick+1)*10;
-      shells.erase(shells.begin()+i);
-      i--;
-     }
-    } else {
-     shellPickUpTmp.img = shellTmp.img;
-     shellPickUpTmp.src.x = shells[i].src.w * shells[i].id;
-     draw(&shellPickUpTmp);
-     if(SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest)) {
-      if(ammoCount[ammo]==0) ammo = shells[i].id;
-      ammoCount[shells[i].id]+=shells[i].tick;
-      shells.erase(shells.begin()+i);
-      i--;
-     }
-    }
-   }
-  }
- }
+ drawBullets();
 
  drawWithOffset(snowFall);
  if(lighting.dest.w<=WIDTH*4) draw(&lighting);
@@ -1376,7 +1295,7 @@ void init() {
  healthBar.h=40;
  pauseUI.img = setImage("res/pause.png");
  pauseUI.src.x=pauseUI.src.y=0;
- pauseUI.src.w=246;pauseUI.src.h=144;
+ pauseUI.src.w=1280;pauseUI.src.h=72;
  pauseUI.dest.x=pauseUI.dest.y=0;
  pauseUI.dest.w=DM.w;pauseUI.dest.h=DM.h;
  paused = 0;
@@ -1395,10 +1314,8 @@ void init() {
  lighting.dest.x=lighting.dest.y=lighting.src.x=lighting.src.y=0;
  //lighting.img = setImage("res/lighting.png");
  lighting.img = setImage("res/lighting2.png");
- chessTmp.img = setImage("res/chess.png");
- chessTmp.src.x=chessTmp.src.y=10;
- heartTmp.img = setImage("res/health.png");
- heartTmp.src.x=heartTmp.src.y=10;
+ healthPickUp.img =  setImage("res/health.png");
+ healthPickUp.id = 6;
 }
 
 void quit() {
@@ -1450,7 +1367,6 @@ int main(int argc, char **argv) {
    mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
    if(keystates[SDL_SCANCODE_P]) {if(!lpaused){paused=false;}lpaused=1;
    }else{lpaused=0;}
-   cursor.angle+=4;
   }
  }
  quit();

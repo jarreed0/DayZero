@@ -17,3 +17,5 @@ Known bugs
 -Something was calling draw() with wrong params, didnt fix but I stopped the wrong params from going through
 
 -Map gen is correct, but fixed maps dont replace broken ones
+
+-Getting stuck between wall and ice
