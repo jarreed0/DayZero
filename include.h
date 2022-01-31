@@ -1,3 +1,9 @@
+#include "headers/SDL.h"
+#include "headers/SDL_image.h"
+#include "headers/SDL_ttf.h"
+#include "headers/SDL_mixer.h"
+
+/*
 #if __has_include(<SDL2/SDL.h>)
  #include <SDL2/SDL.h>
  #include <SDL2/SDL_image.h>
@@ -9,6 +15,7 @@
  #include </usr/local/win64/x86_64-w64-mingw32/include/SDL/SDL_ttf.h>
  #include </usr/local/win64/x86_64-w64-mingw32/include/SDL/SDL_mixer.h>
 #endif
+*/
 
 #include <cstdlib>
 #include <iostream>

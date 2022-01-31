@@ -110,8 +110,8 @@ SDL_Rect healthBar;
 double maxHealthBar;
 
 //map
-int map_width = 150; //500;
-int map_height = 150; //500;
+int map_width = 150;
+int map_height = 150;
 int tile_size = 75;
 std::vector<tile> map;
 int tileImgId;
@@ -232,6 +232,7 @@ void spawnEnemy(int cx, int cy, int type, int type2, int health) {
  enemy.src.y=enemy.src.h*type2;
  enemy.loc.x = cx;
  enemy.loc.y = cy;
+ enemy.loc.w=enemy.loc.h=rand() % tile_size + tile_size*.5;
  enemy.tick=50;
  enemy.angle=0;
  //enemyShadows.push_back(enemyShadow);
@@ -244,7 +245,7 @@ void spawnEnemies(int cx, int cy, int cnt) {
   for(int y=cy-(cnt/2); y<cy+(cnt/2); y++) {
    int type = rand() % 10;
    if(type!=1) type=0;
-   if(map[y*map_width + x].id == FLOOR && rand() % 10 > 3) {spawnEnemy((x)*tile_size + (enemy.loc.w/2), (y)*tile_size + (enemy.loc.h/2), rand() % 5, type, 60+(40*type));}
+   if(map[y*map_width + x].id == FLOOR && rand() % 10 > 3) {spawnEnemy((x)*tile_size + (enemy.loc.w/2), (y)*tile_size + (enemy.loc.h/2), rand() % 5, type, 60+(140*type));}
   }
  }
 }
@@ -618,9 +619,10 @@ void updateBullets() {
             if(modsUnlocked[mod]) {
                 if(mods[mod] == "Velocity") bVel+=10;
                 if(mods[mod] == "Damage") bDmg+=8;
-                if(mods[mod] == "Bounce" || mods2[mod2] == "Bounce") bnc=1;
+                if(mods[mod] == "Bounce") bnc=1;
             }
             if(mods2Unlocked[mod2]) {
+            if(mods2[mod2] == "Bounce") bnc=1;
             if(mods2[mod2] == "Velocity") bVel+=10;
             if(mods2[mod2] == "Damage") bDmg+=8;
             if(mods2[mod2] == "Random") {
@@ -727,7 +729,7 @@ void updateEnemies() {
    int dropY = enemies[e].loc.y / tile_size;
    dropShell(dropX, dropY, enemies[e].id);
    if(enemies[e].frame == 1) dropChess(dropX, dropY);
-   if(rand() % 8 == 1) dropHeart(dropX, dropY, rand() % 2);
+   if(rand() % 6 == 1) dropHeart(dropX, dropY, rand() % 2);
    enemies.erase(enemies.begin()+e);
    e--;
   }
@@ -766,7 +768,7 @@ void updateEnemies() {
    }
    for(int i=0; i<bullets.size(); i++) {
     enemies[e].src.x=enemies[e].src.w*enemies[e].id;
-    if(bullets[i].id==PLAYER_ID) {
+    if(bullets[i].id==PLAYER_ID && bullets[i].frame!=enemies[e].id) {
      if(SDL_HasIntersection(&bullets[i].loc, &enemies[e].loc)) {bullets[i].tick=0; enemies[e].health-=bullets[i].extra; enemies[e].src.x=enemies[e].src.w*5;}
     }
    }
@@ -946,7 +948,7 @@ void update() {
                 f--;
             }
         }
-        setCamera(player);
+        //setCamera(player);
     }
 
     cursor.loc.x=mouse.x-cursor.loc.w/2;cursor.loc.y=mouse.y-cursor.loc.h/2;
@@ -984,6 +986,7 @@ void update() {
     lighting.loc.w=WIDTH + (2*(dayClock));
     lighting.loc.h=HEIGHT + (1*(dayClock));
     if(lighting.loc.w<WIDTH) lighting.loc = lens;
+    setCamera(player);
 }
 //bullets
 //enemies
@@ -1049,7 +1052,7 @@ void draw(obj o) {
         dest = o.loc;
         dest.x-=lens.x;
         dest.y-=lens.y;
-        int flip = SDL_FLIP_NONE;
+        SDL_RendererFlip flip = SDL_FLIP_NONE;
         if(o.flipH) flip = SDL_FLIP_HORIZONTAL;
         if(o.flipV) flip = SDL_FLIP_VERTICAL;
         if(o.rotateOnCenter) {
@@ -1086,7 +1089,7 @@ void drawRectUpfront(SDL_Rect r, SDL_Color c) {
  SDL_RenderFillRect(renderer, &r);
 }
 void drawUpfront(obj o) {
-    int flip = SDL_FLIP_NONE;
+    SDL_RendererFlip flip = SDL_FLIP_NONE;
     if(o.flipH) flip = SDL_FLIP_HORIZONTAL;
     if(o.flipV) flip = SDL_FLIP_VERTICAL;
     if(o.rotateOnCenter) {
@@ -1334,6 +1337,7 @@ int quit() {
  SDL_DestroyRenderer(renderer);
  SDL_DestroyWindow(window);
  SDL_Quit();
+ return 0;
 }
 
 //main
