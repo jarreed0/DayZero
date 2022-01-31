@@ -224,56 +224,45 @@ void write(std::string t, int x, int y) {
 
 std::vector<obj> map;
 
-void draw(obj* o) {
- if(o->img <= sizeof images && o->src.x<1000) {
- //std::cout << renderer << " " << o->img << " src:" << o->src.x << "," << o->src.y << " " << o->src.w << "x" << o->src.h << " dest:" << o->dest.x << "," << o->dest.y << " " << o->dest.w << "x" << o->dest.h << " " << o->angle << "* " << o->center.x << "," << o->center.y << " " << o->flip << " " << o->flipV << " " << o->rotateOnCenter << std::endl;
- //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
- if(o->flip) {
-  if(o->rotateOnCenter) {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_HORIZONTAL);
+void draw(obj o) {
+ if(o.img <= sizeof images && o.src.x<1000) {
+  //std::cout << renderer << " " << o.img << " src:" << o.src.x << "," << o.src.y << " " << o.src.w << "x" << o.src.h << " dest:" << o.dest.x << "," << o.dest.y << " " << o.dest.w << "x" << o.dest.h << " " << o.angle << "* " << o.center.x << "," << o.center.y << " " << o.flip << " " << o.flipV << " " << o.rotateOnCenter << std::endl;
+  //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
+  if(o.flip) {
+   if(o.rotateOnCenter) {
+    SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.dest, o.angle, &o.center, SDL_FLIP_HORIZONTAL);
+   } else {
+    SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.dest, o.angle, NULL, SDL_FLIP_HORIZONTAL);
+   }
+  } else if(o.flipV) {
+   if(o.rotateOnCenter) {
+    SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.dest, o.angle, &o.center, SDL_FLIP_VERTICAL);
+   } else {
+    SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.dest, o.angle, NULL, SDL_FLIP_VERTICAL);
+   }
   } else {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_HORIZONTAL);
+   if(o.rotateOnCenter) {
+    SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.dest, o.angle, &o.center, SDL_FLIP_NONE);
+   } else {
+    SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.dest, o.angle, NULL, SDL_FLIP_NONE);
+   }
   }
- } else if(o->flipV) {
-  if(o->rotateOnCenter) {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_VERTICAL);
-  } else {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_VERTICAL);
-  }
- } else {
-  if(o->rotateOnCenter) {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_NONE);
-  } else {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_NONE);
-  }
+  if(o.parent) draw(*o.child);
  }
- if(o->parent) draw(o->child);
- }
- //delete (o);
 }
-void drawDebug(obj* o) {
+void drawDebug(obj o) {
  draw(o);
  SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
- SDL_RenderDrawRect(renderer, &o->dest);
- write(std::to_string(o->dest.x) + ", " +  std::to_string(o->dest.y), o->dest.x + 20, o->dest.y + 20);
- write(std::to_string(o->id) + " - " +  std::to_string(o->frame), o->dest.x + 20, o->dest.y + 40);
- //delete (o);
+ SDL_RenderDrawRect(renderer, &o.dest);
+ write(std::to_string(o.dest.x) + ", " +  std::to_string(o.dest.y), o.dest.x + 20, o.dest.y + 20);
+ write(std::to_string(o.id) + " - " +  std::to_string(o.frame), o.dest.x + 20, o.dest.y + 40);
 }
 
-void draw(std::vector<obj*> os) {
- for(int o=0; o<os.size(); o++) {
-  draw(os[o]);
- }
- /*for (auto p : os) {
-  delete p;
- }
- os.clear();*/
-}
 void drawWithOffset(obj o) {
  obj tmp = o;
  tmp.dest.x -= offsetX;
  tmp.dest.y -= offsetY;
- draw(&tmp);
+ draw(tmp);
 }
 void drawWithOffset(std::vector<obj> os) {
  for(int o=0; o<os.size(); o++) {
@@ -282,7 +271,7 @@ void drawWithOffset(std::vector<obj> os) {
 }
 void draw(std::vector<obj> os) {
  for(auto o : os) {
-  draw(&o);
+  draw(o);
  }
 }
 void drawRect(SDL_Rect r, SDL_Color c) {
@@ -294,11 +283,7 @@ void drawOutline(SDL_Rect r, SDL_Color c) {
  SDL_RenderDrawRect(renderer, &r);
 }
 bool inScreen(obj o) {
- return ((o.dest.x+o.dest.w)>-200) && ((o.dest.y+o.dest.h)>-200) && (o.dest.x-(o.dest.w*4)<WIDTH+200) && (o.dest.y-(o.dest.h*4)<HEIGHT+200);
-}
-bool inScreen(obj* o) {
- bool r =((o->dest.x+o->dest.w)>-200) && ((o->dest.y+o->dest.h)>-200) && (o->dest.x-(o->dest.w*4)<WIDTH+200) && (o->dest.y-(o->dest.h*4)<HEIGHT+200);
- //delete (o);
+ bool r =((o.dest.x+o.dest.w)>-200) && ((o.dest.y+o.dest.h)>-200) && (o.dest.x-(o.dest.w*4)<WIDTH+200) && (o.dest.y-(o.dest.h*4)<HEIGHT+200);
  return r;
 }
 std::vector<obj> buffer, buffer2;
@@ -339,10 +324,10 @@ void drawUI() {
  drawRect(healthBar, healthColor);//setColor(255, 90, 90));
  gunUI.src=gun.src;
  shellSelect.src.y = shellSelect.src.h * ammo;
- draw(&UI);
- draw(&gunUI);
- draw(&shellSelect);
- if(changingMod) draw(&modSelect);
+ draw(UI);
+ draw(gunUI);
+ draw(shellSelect);
+ if(changingMod) draw(modSelect);
  for(int a=0; a < 5; a++) {
   write(std::to_string(ammoCount[a]), 220, a*23 + 35);
  }
@@ -749,7 +734,7 @@ void floorPer() {
  std::cout << map.size() << std::endl;
  for(int i=0; i<map.size(); i++) {
   std::cout << map[i].id;
-  if(i & map_width == 1) std::cout << std::endl;
+  if(i  map_width == 1) std::cout << std::endl;
  }
  std::cout << "SEED: " << seed << std::endl;
  */
@@ -950,7 +935,7 @@ void drawBullets() {
   tmpS.src.x = tmpS.id * tmpS.src.w;
   if(tmpS.id == -1 && inScreen(tmpS)) {
    tmpS.angle = shells[i].angle  * 180 / PI;
-   draw(&tmpS);
+   draw(tmpS);
   }
   if(shells[i].tick<-2) {
    shells.erase(shells.begin()+i);
@@ -976,7 +961,7 @@ void drawBullets() {
   if(inScreen(tmpB)) {
    tmpB.angle = bullets[i].angle  * 180 / PI;
    tmpB.src.x = tmpB.src.w * tmpB.frame;
-   draw(&tmpB);
+   draw(tmpB);
   }
  }
 }
@@ -1035,7 +1020,7 @@ void updateEnemies() {
   enemyTmp.dest.x -= offsetX;
   enemyTmp.dest.y -= offsetY;
   enemyTmp.parent=0;
-  if(inScreen(&enemyTmp)) {
+  if(inScreen(enemyTmp)) {
    enemyTmp.src.x=enemies[e].src.w*enemies[e].id;
    enemyTmp.src.y=enemies[e].src.h*enemies[e].frame;
    enemyShadows[e].dest.y+=enemies[e].dest.h*.7;
@@ -1129,7 +1114,7 @@ void render() {
    if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP || tile.id == SNOW) {
     if(tile.id == WALL && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) wallCollide = true;
      tmp20.src.x = tmp20.frame * tmp20.src.w;
-     draw(&tmp20);
+     draw(tmp20);
    } else if(tile.id == GATE) {
     drawRect(tmp20.dest, setColor(200, 90, 90));
    }
@@ -1363,7 +1348,7 @@ void render() {
     if(shells[i].id == 5) {
      shellPickUpTmp.img = chessTmp.img;
      drawToBuffer(shellPickUpTmp);
-     drawDebug(&shellPickUpTmp);
+     drawDebug(shellPickUpTmp);
      if(SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest)) {
       if(rand() % 2) {
        bool unlock=1;
@@ -1385,7 +1370,7 @@ void render() {
      shellPickUpTmp.img = heartTmp.img;
      shellPickUpTmp.src.x=10*shells[i].tick;
      drawToBuffer(shellPickUpTmp);
-     drawDebug(&shellPickUpTmp);
+     drawDebug(shellPickUpTmp);
      //std::cout << player.health << "/" << player.maxHealth << std::endl;
      if(player.health < player.maxHealth && (SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest))) {
       player.health+=(shells[i].tick+1)*50;
@@ -1395,7 +1380,7 @@ void render() {
     } else {
      shellPickUpTmp.img = shellTmp.img;
      shellPickUpTmp.src.x = shells[i].src.w * shells[i].id;
-     draw(&shellPickUpTmp);
+     draw(shellPickUpTmp);
      if(SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest)) {
       if(ammoCount[ammo]==0) ammo = shells[i].id;
       ammoCount[shells[i].id]+=shells[i].tick;
@@ -1408,14 +1393,14 @@ void render() {
  }
 
  drawWithOffset(snowFall);
- if(lighting.dest.w<=WIDTH*4) draw(&lighting);
+ if(lighting.dest.w<=WIDTH*4) draw(lighting);
 
  drawUI();
 
  cursor.dest.x = mouse.x - cursor.dest.w/2; //+ bulletTmp.dest.w;
  cursor.dest.y = mouse.y - cursor.dest.h/2; //+ bulletTmp.dest.h;
  cursor.src.x = cursor.frame * cursor.src.w;
- draw(&cursor);
+ draw(cursor);
 
 
  //write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
@@ -1590,15 +1575,15 @@ int main(int argc, char **argv) {
    cursor.dest.x = mouse.x - cursor.dest.w/2;
    cursor.dest.y = mouse.y - cursor.dest.h/2;
    cursor.src.x = cursor.frame * cursor.src.w;
-   draw(&pauseUI);
-   draw(&cursor);
+   draw(pauseUI);
+   draw(cursor);
    SDL_RenderPresent(renderer);
    keystates = SDL_GetKeyboardState(NULL);
    if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
    while(SDL_PollEvent(&e)) {
      if(e.type == SDL_QUIT) running=false;
    }
-   mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
+   mousestate = SDL_GetMouseState(mouse.x, mouse.y);
    if(keystates[SDL_SCANCODE_P]) {if(!lpaused){paused=false;}lpaused=1;
    }else{lpaused=0;}
    cursor.angle+=4;

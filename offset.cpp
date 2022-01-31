@@ -148,7 +148,7 @@ struct obj;
 struct obj {
  SDL_Point coord;
  SDL_Point center;
- SDL_Rect dest, src;
+ SDL_Rect dest, src, offset;
  double angle = 0;
  double vel = 0;
  double lastVel = 0;
@@ -167,6 +167,12 @@ struct obj {
  bool extraBool;
  //int alpha=255;
 } player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI, shellSelect, modSelect, chessTmp, heartTmp;
+
+void offset(obj* o) {
+  o->offset = o->dest;
+  o->offset.x -= offsetX;
+  o->offset.y -= offsetY;
+}
 
 obj enemyTmp, enemyShadow;
 std::vector<obj> enemies, enemyShadows;
@@ -224,6 +230,8 @@ void write(std::string t, int x, int y) {
 
 std::vector<obj> map;
 
+
+
 void draw(obj* o) {
  if(o->img <= sizeof images && o->src.x<1000) {
  //std::cout << renderer << " " << o->img << " src:" << o->src.x << "," << o->src.y << " " << o->src.w << "x" << o->src.h << " dest:" << o->dest.x << "," << o->dest.y << " " << o->dest.w << "x" << o->dest.h << " " << o->angle << "* " << o->center.x << "," << o->center.y << " " << o->flip << " " << o->flipV << " " << o->rotateOnCenter << std::endl;
@@ -260,6 +268,7 @@ void drawDebug(obj* o) {
  //delete (o);
 }
 
+
 void draw(std::vector<obj*> os) {
  for(int o=0; o<os.size(); o++) {
   draw(os[o]);
@@ -293,13 +302,50 @@ void drawOutline(SDL_Rect r, SDL_Color c) {
  SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
  SDL_RenderDrawRect(renderer, &r);
 }
+void drawOffset(obj* o) {
+ if(o->img <= sizeof images && o->src.x<1000) {
+ //std::cout << renderer << " " << o->img << " src:" << o->src.x << "," << o->src.y << " " << o->src.w << "x" << o->src.h << " dest:" << o->dest.x << "," << o->dest.y << " " << o->dest.w << "x" << o->dest.h << " " << o->angle << "* " << o->center.x << "," << o->center.y << " " << o->flip << " " << o->flipV << " " << o->rotateOnCenter << std::endl;
+ //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
+ if(o->flip) {
+  if(o->rotateOnCenter) {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->offset, o->angle, &o->center, SDL_FLIP_HORIZONTAL);
+  } else {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->offset, o->angle, NULL, SDL_FLIP_HORIZONTAL);
+  }
+ } else if(o->flipV) {
+  if(o->rotateOnCenter) {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->offset, o->angle, &o->center, SDL_FLIP_VERTICAL);
+  } else {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->offset, o->angle, NULL, SDL_FLIP_VERTICAL);
+  }
+ } else {
+  if(o->rotateOnCenter) {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->offset, o->angle, &o->center, SDL_FLIP_NONE);
+  } else {
+   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->offset, o->angle, NULL, SDL_FLIP_NONE);
+  }
+ }
+ if(o->parent) draw(o->child);
+ }
+ //delete (o);
+}
+void drawOffsetDebug(obj* o) {
+ drawOffset(o);
+ SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+ SDL_RenderDrawRect(renderer, &o->offset);
+ write(std::to_string(o->offset.x) + ", " +  std::to_string(o->offset.y), o->offset.x + 20, o->offset.y + 20);
+ write(std::to_string(o->id) + " - " +  std::to_string(o->frame), o->offset.x + 20, o->offset.y + 40);
+ //delete (o);
+}
 bool inScreen(obj o) {
  return ((o.dest.x+o.dest.w)>-200) && ((o.dest.y+o.dest.h)>-200) && (o.dest.x-(o.dest.w*4)<WIDTH+200) && (o.dest.y-(o.dest.h*4)<HEIGHT+200);
 }
 bool inScreen(obj* o) {
  bool r =((o->dest.x+o->dest.w)>-200) && ((o->dest.y+o->dest.h)>-200) && (o->dest.x-(o->dest.w*4)<WIDTH+200) && (o->dest.y-(o->dest.h*4)<HEIGHT+200);
- //delete (o);
  return r;
+}
+bool offsetInScreen(obj o) {
+ return ((o.offset.x+o.offset.w)>-200) && ((o.offset.y+o.offset.h)>-200) && (o.offset.x-(o.offset.w*4)<WIDTH+200) && (o.offset.y-(o.offset.h*4)<HEIGHT+200);
 }
 std::vector<obj> buffer, buffer2;
 int bufLow, bufHigh;
@@ -356,7 +402,7 @@ void spawnEnemy(int cx, int cy, int type, int type2, int health) {
  enemyTmp.id = type;
  enemyTmp.frame = type2;
  enemyTmp.src.x=enemyTmp.src.w*type;
- enemyTmp.src.h=enemyTmp.src.h*type;
+ enemyTmp.src.y=enemyTmp.src.h*type2;
  enemyTmp.dest.x = cx;
  enemyTmp.dest.y = cy;
  enemyTmp.tick=50;
@@ -822,7 +868,7 @@ int lengthSquare(int x1, int x2, int y1, int y2){
 }
 bool collideH, collideV, inSnow, wallCollide;
 int speed;
-bool lu, ld, ll, lr;
+
 void update() {
  if(player.health<=0) {
   std::cout << "You died." << std::endl;
@@ -925,32 +971,36 @@ void fireBullet(int x, int y, double vel, double angle, int id, int type, int dm
  bulletTmp.extraBool = bnc;
  bullets.push_back(bulletTmp);
 }
-obj tmpS, tmpB;
+//obj tmpS, tmpB;
 void drawBullets() {
  for(int i=0; i<shells.size(); i++) {
-  tmpS = shells[i];
-  tmpS.img = shellTmp.img;
-  tmpS.dest.x -= offsetX;
-  tmpS.dest.y -= offsetY;
-  tmpS.dest.x -= tmpS.dest.w/2;
-  tmpS.dest.y -= tmpS.dest.h/2;
-  tmpS.src.x=8*5;
-  if(tmpS.id == -1) {
-   tmpS.dest.y -= sin((tmpS.tick)/6) * (player.dest.h/2);
-   int ang = tmpS.angle * 180 / PI;// % 360;
+  //tmpS = shells[i];
+  int x=shells[i].offset.x;
+  offset(&shells[i]);
+  //tmpS.img = shellTmp.img;
+  //tmpS.dest.x -= offsetX;
+  //tmpS.dest.y -= offsetY;
+  shells[i].offset.x -= shells[i].dest.w/2;
+  shells[i].offset.y -= shells[i].dest.h/2;
+  shells[i].src.x=8*5;
+  if(shells[i].id == -1) {
+   shells[i].offset.y -= sin((shells[i].tick)/6) * (player.dest.h/2);
+   int ang = shells[i].angle * 180 / PI;// % 360;
    if(ang < 0) ang+=360;
    if(ang > 90 && ang < 270) {
-    tmpS.dest.x -= tmpS.tick * 8 - 20;
+    shells[i].offset.x -= shells[i].tick * 8 - 20;
    } else {
-    tmpS.dest.x += tmpS.tick * 8 - 240;
+    shells[i].offset.x += shells[i].tick * 8 - 240;
    }
    shells[i].tick--;
   }
   //if(i==0) {std::cout << tmpS.dest.x << ","<< tmpS.dest.y<<std::endl;}
-  tmpS.src.x = tmpS.id * tmpS.src.w;
-  if(tmpS.id == -1 && inScreen(tmpS)) {
-   tmpS.angle = shells[i].angle  * 180 / PI;
-   draw(&tmpS);
+  shells[i].src.x = shells[i].id * shells[i].src.w;
+  if(shells[i].id == -1 && offsetInScreen(shells[i])) {
+   shells[i].angle = shells[i].angle  * 180 / PI;
+   drawOffset(&shells[i]);
+   draw(&shells[i]);
+   drawOffsetDebug(&shells[i]);
   }
   if(shells[i].tick<-2) {
    shells.erase(shells.begin()+i);
@@ -968,22 +1018,23 @@ void drawBullets() {
    i--;
   }
 
-  tmpB = bullets[i];
-  tmpB.dest.x -= offsetX;
-  tmpB.dest.y -= offsetY;
-  tmpB.dest.x -= tmpB.dest.w/2;
-  tmpB.dest.y -= tmpB.dest.h/2;
-  if(inScreen(tmpB)) {
-   tmpB.angle = bullets[i].angle  * 180 / PI;
-   tmpB.src.x = tmpB.src.w * tmpB.frame;
-   draw(&tmpB);
+  //tmpB = bullets[i];
+  //tmpB.dest.x -= offsetX;
+  //tmpB.dest.y -= offsetY;
+  bullets[i].offset;
+  bullets[i].offset.x -= bullets[i].offset.w/2;
+  bullets[i].offset.y -= bullets[i].offset.h/2;
+  if(offsetInScreen(bullets[i])) {
+   bullets[i].angle = bullets[i].angle  * 180 / PI;
+   bullets[i].src.x = bullets[i].src.w * bullets[i].frame;
+   draw(&bullets[i]);
   }
  }
 }
 obj shellPickUpTmp;
 void initBullet() {
  bulletTmp.tick=800;
- bulletTmp.dest.w=40;
+ lulletTmp.dest.w=40;
  bulletTmp.dest.h=25;
  bulletTmp.src.w=8;
  bulletTmp.src.h=6;
@@ -1355,8 +1406,8 @@ void render() {
    shellPickUpTmp = shells[i];
    shellPickUpTmp.dest.x -= offsetX;
    shellPickUpTmp.dest.y -= offsetY;
-   shellPickUpTmp.dest.x -= tmpS.dest.w/2;
-   shellPickUpTmp.dest.y -= tmpS.dest.h/2;
+   shellPickUpTmp.dest.x -= shellPickUpTmp.dest.w/2;
+   shellPickUpTmp.dest.y -= shellPickUpTmp.dest.h/2;
    shellPickUpTmp.src.x=0;
    //if(i==0) {std::cout << shellPickUpTmp.destx << ","<< shellPickUpTmp.desty<<std::endl;}
    if(inScreen(shellPickUpTmp)) {

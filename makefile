@@ -1,27 +1,29 @@
-# TinyEngine Makefile
-# Compiler Configuration
+ifeq ($(os),windows)
+	TARGET ?= bin/DayOne.exe
 
-CC = g++ -std=c++17
-CF = -Wfatal-errors -O
-LF = -I/usr/local/include -L/usr/local/lib
+	CC := x86_64-w64-mingw32-g++
+	CFLAGS := --std=c++17 -w -fpermissive -I/usr/local/win64/x86_64-w64-mingw32/include
+	LDFLAGS := -static -static-libgcc
+	LIBS := `/usr/local/win64/x86_64-w64-mingw32/bin/sdl2-config --static-libs`
+else
+	TARGET ?= bin/DayOne
 
-# General Linking
-
-LINKS = -lpthread -lSDL2 -lSDL2_image -lSDL2_mixer -lSDL2_ttf -lboost_system -lboost_filesystem
-
-# OS Specific Linking
-
-UNAME := $(shell uname)
-ifeq ($(UNAME), Linux)			#Detect GNU/Linux
-TINYOS = -lX11 -lGL
-endif
-ifeq ($(UNAME), Darwin)			#Detext MacOS
-TINYOS = -framework OpenGL
+	CC := g++
+	CFLAGS := --std=c++17 -w -fpermissive `pkg-config --cflags sdl2 SDL2_image SDL2_ttf SDL2_mixer`
+	LDFLAGS :=
+	LIBS := `pkg-config --libs sdl2 SDL2_image SDL2_ttf SDL2_mixer`
 endif
 
-all: proj.cpp
-			$(CC) proj.cpp $(CF) $(LF) $(TINYOS) $(LINKS) -o game
+OBJECTS := \
+	obj/new.o
 
-run: proj.cpp
-			$(CC) proj.cpp $(CF) $(LF) $(TINYOS) $(LINKS) -o game
-			./game
+$(TARGET): $(OBJECTS)
+	$(CC) $(LDFLAGS) $^ -o $@ $(LIBS)
+
+obj/%.o: %.cpp
+	$(CC) $(CFLAGS) $< -c -o $@
+
+clean:
+	rm -f $(OBJECTS) $(TARGET)
+
+.PHONY: clean

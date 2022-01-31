@@ -19,7 +19,7 @@
 #include <vector>
 #include <cmath>
 
-const char * TITLE = "Day One";
+const char * TITLE = "Nuclear Winter";
 
 #define PI 3.14159265359
 
@@ -91,7 +91,6 @@ int loadMusic(const char* filename) {
   return -1;
  }
  music.push_back(m);
- //delete (m);
  return music.size()-1;
 }
 int loadSound(const char* filename) {
@@ -102,7 +101,6 @@ int loadSound(const char* filename) {
   return -1;
  }
  sounds.push_back(s);
- //delete (s);
  return sounds.size()-1;
 }
 int playSound(int s) {
@@ -219,7 +217,6 @@ void write(std::string t, int x, int y) {
  SDL_FreeSurface(text_surface);
  SDL_RenderCopy(renderer, text_texture, NULL, &wrect);
  SDL_DestroyTexture(text_texture);
- //delete (text);
 }
 
 std::vector<obj> map;
@@ -249,7 +246,6 @@ void draw(obj* o) {
  }
  if(o->parent) draw(o->child);
  }
- //delete (o);
 }
 void drawDebug(obj* o) {
  draw(o);
@@ -257,17 +253,12 @@ void drawDebug(obj* o) {
  SDL_RenderDrawRect(renderer, &o->dest);
  write(std::to_string(o->dest.x) + ", " +  std::to_string(o->dest.y), o->dest.x + 20, o->dest.y + 20);
  write(std::to_string(o->id) + " - " +  std::to_string(o->frame), o->dest.x + 20, o->dest.y + 40);
- //delete (o);
 }
 
 void draw(std::vector<obj*> os) {
  for(int o=0; o<os.size(); o++) {
   draw(os[o]);
  }
- /*for (auto p : os) {
-  delete p;
- }
- os.clear();*/
 }
 void drawWithOffset(obj o) {
  obj tmp = o;
@@ -297,9 +288,7 @@ bool inScreen(obj o) {
  return ((o.dest.x+o.dest.w)>-200) && ((o.dest.y+o.dest.h)>-200) && (o.dest.x-(o.dest.w*4)<WIDTH+200) && (o.dest.y-(o.dest.h*4)<HEIGHT+200);
 }
 bool inScreen(obj* o) {
- bool r =((o->dest.x+o->dest.w)>-200) && ((o->dest.y+o->dest.h)>-200) && (o->dest.x-(o->dest.w*4)<WIDTH+200) && (o->dest.y-(o->dest.h*4)<HEIGHT+200);
- //delete (o);
- return r;
+ return ((o->dest.x+o->dest.w)>-200) && ((o->dest.y+o->dest.h)>-200) && (o->dest.x-(o->dest.w*4)<WIDTH+200) && (o->dest.y-(o->dest.h*4)<HEIGHT+200);
 }
 std::vector<obj> buffer, buffer2;
 int bufLow, bufHigh;
@@ -356,7 +345,7 @@ void spawnEnemy(int cx, int cy, int type, int type2, int health) {
  enemyTmp.id = type;
  enemyTmp.frame = type2;
  enemyTmp.src.x=enemyTmp.src.w*type;
- enemyTmp.src.h=enemyTmp.src.h*type;
+ enemyTmp.src.y=enemyTmp.src.h*type2;
  enemyTmp.dest.x = cx;
  enemyTmp.dest.y = cy;
  enemyTmp.tick=50;
@@ -1450,7 +1439,6 @@ void gameInit() {
  font_color = white; //setColor(0, 255, 255);
  initAudio();
  genMap();
- floorPer();
  offsetX=map_width/2 * tile_size - WIDTH/2;
  offsetY=map_height/2 * tile_size - HEIGHT/2;
  treeObj.dest.w=tile_size;treeObj.src.w=43;
@@ -1548,10 +1536,10 @@ void gameInit() {
  enemyShadow.src.x = enemyShadow.src.w * 6;
  enemyTmp.parent=1;
  enemyTmp.child=&enemyShadow;
+ floorPer();
 }
 
 void quit() {
- //delete (keystates);
  quitSounds();
  TTF_CloseFont(font);
  SDL_DestroyRenderer(renderer);
