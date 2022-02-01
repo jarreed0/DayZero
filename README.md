@@ -5,6 +5,8 @@ making a bullet hell game in a month (Jan 2022) - SDL2 - procedural generated ma
 
 Tested on Linux. Use make to build. Still working on porting the game.
 
+Dependencies: SDL2, SDL2_ttf, SDL2_mixer, SDL2_image
+
 [Devlog 1](https://www.youtube.com/watch?v=76DXj4hbBoE)
 
 [Devlog 2](https://youtu.be/hA2H1nx99Zc)
