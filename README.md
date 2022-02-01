@@ -15,13 +15,16 @@ Dependencies: SDL2, SDL2_ttf, SDL2_mixer, SDL2_image
 
 Devlog 4 coming soon!
 
+CONTROLS:
+MOVE: WASD / ARROW KEYS
+SHOOT: LEFT MOUSE
+CHANGE AMMO: NUMPAD, MOUSESCROLL
+CHANGE MOD 1: L SHIFT + NUMPAD/MOUSESCROLL
+CHANGE MOD 2: L SHIFT + NUMPAD/MOUSESCROLL
+EXIT: ESC
 
 Known bugs
 
--Trees moving? I think this is gone
+-generated map is sometimes unplayable
 
--Something was calling draw() with wrong params, didnt fix but I stopped the wrong params from going through
-
--Map gen is correct, but fixed maps dont replace broken ones
-
--Getting stuck between wall and ice
+-lag caused by wave gun
