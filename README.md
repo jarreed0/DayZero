@@ -1,4 +1,4 @@
-# bullet-hell
+# DayZero - a bullet hell game
 making a bullet hell game in a month (Jan 2022) - SDL2 - procedural generated maps
 
 (Tmp) music file too large, download it [here](http://jar.ylimaf.com/cold.wav) and put it in the res/ directory and then uncomment lines 866 and 1217 in the proj.cpp.
