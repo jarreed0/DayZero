@@ -1,30 +1,10 @@
-#if __has_include(<SDL2/SDL.h>)
- #include <SDL2/SDL.h>
- #include <SDL2/SDL_image.h>
- #include <SDL2/SDL_ttf.h>
- #include <SDL2/SDL_mixer.h>
-#else
- #include </usr/local/win64/x86_64-w64-mingw32/include/SDL/SDL.h>
- #include </usr/local/win64/x86_64-w64-mingw32/include/SDL/SDL_image.h>
- #include </usr/local/win64/x86_64-w64-mingw32/include/SDL/SDL_ttf.h>
- #include </usr/local/win64/x86_64-w64-mingw32/include/SDL/SDL_mixer.h>
-#endif
+//import
+#include "include.h"
 
-#include <cstdlib>
-#include <iostream>
-
-#include <fstream>
-#include <iterator>
-
-#include <vector>
-#include <cmath>
-
+//def
 const char * TITLE = "Day One";
 
-#define PI 3.14159265359
-
-int setFPS = 60;
-
+bool running;
 int WIDTH = 1800;
 int HEIGHT = 900;
 int flags = SDL_WINDOW_FULLSCREEN; //not used yet
@@ -33,7 +13,13 @@ SDL_Window* window;
 TTF_Font *font;
 SDL_Color font_color;
 int font_size;
-SDL_Rect screenRect;
+SDL_DisplayMode DM;
+int seed;
+
+#define PI 3.14159265359
+
+#define PLAYER_ID 0
+#define ENEMY_ID 1
 
 #define TOP 1
 #define WALL 2
@@ -42,28 +28,95 @@ SDL_Rect screenRect;
 #define GATE 5
 #define SNOW 6
 
-int frameCount, timerFPS, lastFrame, fps;
+int frameCount, timerFPS, lastFrame, fps, lastTime;
+int setFPS = 60;
 
-bool running = 1;
-bool paused, lpaused;
-#define PLAYING 1;
-#define PAUSED 2;
-#define MAIN 3;
-#define SAVING 4;
-#define LOADING 5;
-#define EXITING 6;
-int gamestate = PLAYING;
-int seed;
+const Uint8 *keystates;
+Uint32 mousestate;
+SDL_Event event;
 
-int offsetX, offsetY;
-bool up, down, right, left;
+SDL_Point camera;
+SDL_Rect lens;
 
-int map_width = 150; //500;
-int map_height = 150; //500;
+bool left, right, down, up, fire, lfire;
+
+bool debug = 0;
+bool freeroam = 0;
+
+int ammo = 0;
+int mod = 0;
+int mod2 = 0;
+bool changingMod = false;
+int ammoCount[5] = {100,50,0,0,0};
+std::string mods[6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
+std::string mods2[6] = {"None", "Velocity", "Damage", "Bounce", "Random"};
+bool modsUnlocked[6] = {1,0,0,0,0,0};
+bool mods2Unlocked[5] = {1,0,0,0,0};
+
+//obj
+struct obj;
+struct tile {
+ SDL_Rect loc;
+ int id;
+ int frame;
+ int tick;
+ int flip;
+};
+struct obj {
+    int id;
+    SDL_Rect src, loc;
+    SDL_Point center;
+    bool flipV, flipH;
+    double angle;
+    double vel, lastVel;
+    bool rotateOnCenter;
+    int frame;
+    double health, maxHealth;
+    int img;
+    double tick = 0;
+    int extra;
+    bool bExtra;
+    bool parent;
+    std::vector<obj*> children;
+    bool collideV, collideH;
+    bool alive;
+} player, gun, treeObj;
+
+obj lighting;
+bool dayCycle;
+int dayClock;
+
+obj enemy, enemyShadow;
+std::vector<obj> enemies;
+
+obj footTmp;
+std::vector<obj> footPrints;
+int footTick = 0;
+
+obj snowTmp;
+std::vector<obj> snowFall;
+
+obj chess, shell, heart;
+std::vector<obj> collectables;
+
+obj bullet;
+std::vector<obj> bullets;
+
+SDL_Point mouse;
+obj cursor;
+
+obj UI, gunUI, modSelect, shellSelect;
+SDL_Rect healthBar;
+double maxHealthBar;
+
+//map
+int map_width = 150;
+int map_height = 150;
 int tile_size = 75;
+std::vector<tile> map;
+int tileImgId;
 
-int tilesImgId;
-
+//extra
 SDL_Color setColor(Uint8 r, Uint8 g, Uint8 b, Uint8 a) { return SDL_Color {r, g, b, a}; }
 SDL_Color setColor(Uint8 r, Uint8 g, Uint8 b) { return setColor(r, g, b, 255); }
 SDL_Color white = setColor(255, 255, 255, 255);
@@ -78,8 +131,22 @@ void setBkg(Uint8 r, Uint8 g, Uint8 b) {
  bkg = setColor(r, g, b);
 }
 
+void setCamera(obj o) {
+    camera.x = o.loc.x + o.loc.w/2;
+    camera.y = o.loc.y + o.loc.h/2;
+}
 
-int gunSound, ricSound, shotSound;
+SDL_Rect initRect(int x, int y, int w, int h) {
+    SDL_Rect r;
+    r.x=x;
+    r.y=y;
+    r.w=w;
+    r.h=h;
+    return r;
+}
+
+//sound
+int gunSound;
 int song;
 std::vector<Mix_Chunk*> sounds;
 std::vector<Mix_Music*> music;
@@ -91,7 +158,6 @@ int loadMusic(const char* filename) {
   return -1;
  }
  music.push_back(m);
- //delete (m);
  return music.size()-1;
 }
 int loadSound(const char* filename) {
@@ -102,12 +168,10 @@ int loadSound(const char* filename) {
   return -1;
  }
  sounds.push_back(s);
- //delete (s);
  return sounds.size()-1;
 }
 int playSound(int s) {
  Mix_Volume(-1, 22);
- //printf("Average volume is %d\n",Mix_Volume(-1,-1));
  Mix_PlayChannel(-1, sounds[s], 0);
  return 0;
 }
@@ -118,314 +182,9 @@ int playMusic(int m) {
  }
  return 0;
 }
-void quitSounds() {
- for(int s=0; s<sounds.size(); s++) {
-  Mix_FreeChunk(sounds[s]);
-  sounds[s]=NULL;
- }
- for(int m=0; m<music.size(); m++) {
-  Mix_FreeMusic(music[m]);
-  music[m]=NULL;
- }
- Mix_Quit();
-}
-int initAudio() {
- SDL_Init(SDL_INIT_AUDIO);
- if(Mix_OpenAudio( 44100, MIX_DEFAULT_FORMAT, 2, 2048 ) < 0) {
-  printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
-  return -1;
- }
- gunSound = loadSound("res/ray.wav");
- //gunSound = loadSound("res/gun.wav");
- //gunSound = loadSound("res/laser.wav");
- ricSound = loadSound("res/ricochet.wav");
- shotSound = loadSound("res/shot.wav");
- song = loadMusic("res/cold.wav"); //https://www.youtube.com/watch?v=eQyg8MBQQog
- return 0;
-}
 
-struct obj;
-struct obj {
- SDL_Point coord;
- SDL_Point center;
- SDL_Rect dest, src;
- double angle = 0;
- double vel = 0;
- double lastVel = 0;
- double tick = 0;
- int id = FLOOR;
- int img;
- bool flip = 0;
- bool flipV = 0;
- bool rotateOnCenter = 0;
- int frame;
- obj* child;
- bool parent = 0;
- double health;
- double maxHealth;
- int extra;
- bool extraBool;
- //int alpha=255;
-} player, gun, wolf, cursor, gunUI, shellIcon, UI, pauseUI, shellSelect, modSelect, chessTmp, heartTmp;
-
-obj enemyTmp, enemyShadow;
-std::vector<obj> enemies, enemyShadows;
-
-obj lighting;
-bool dayCycle;
-int dayClock;
-
-SDL_Rect healthBar;
-double maxHealthBar;
-
-obj snowTmp;
-std::vector<obj> snowFall;
-
-std::vector<obj> footprints;
-int footTick = 0;
-obj footTmp;
-
-SDL_Point mouse;
-
-obj treeObj;
-
-obj bulletTmp;
-std::vector<obj> bullets;
-bool fire = 0;
-obj shellTmp;
-std::vector<obj> shells;
-
-std::vector<SDL_Texture*> images;
-int setImage(std::string filename) {
- images.push_back(IMG_LoadTexture(renderer, filename.c_str()));
- return images.size()-1;
-}
-
-SDL_Surface *text_surface;
-SDL_Texture *text_texture;
-SDL_Rect wrect;
-void write(std::string t, int x, int y) {
- const char *text = t.c_str();
- if (font == NULL) {
-  fprintf(stderr, "error: font not found\n");
-  exit(EXIT_FAILURE);
- }
- text_surface = TTF_RenderText_Solid(font, text, font_color);
- text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
- wrect.w = text_surface->w;
- wrect.h = text_surface->h;
- wrect.x = x;
- wrect.y = y;
- SDL_FreeSurface(text_surface);
- SDL_RenderCopy(renderer, text_texture, NULL, &wrect);
- SDL_DestroyTexture(text_texture);
- //delete (text);
-}
-
-std::vector<obj> map;
-
-void draw(obj* o) {
- if(o->img <= sizeof images && o->src.x<1000) {
- //std::cout << renderer << " " << o->img << " src:" << o->src.x << "," << o->src.y << " " << o->src.w << "x" << o->src.h << " dest:" << o->dest.x << "," << o->dest.y << " " << o->dest.w << "x" << o->dest.h << " " << o->angle << "* " << o->center.x << "," << o->center.y << " " << o->flip << " " << o->flipV << " " << o->rotateOnCenter << std::endl;
- //SDL_RenderSetScale(renderer, zoom, zoom); //int zoom = 1
- if(o->flip) {
-  if(o->rotateOnCenter) {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_HORIZONTAL);
-  } else {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_HORIZONTAL);
-  }
- } else if(o->flipV) {
-  if(o->rotateOnCenter) {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_VERTICAL);
-  } else {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_VERTICAL);
-  }
- } else {
-  if(o->rotateOnCenter) {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, &o->center, SDL_FLIP_NONE);
-  } else {
-   SDL_RenderCopyEx(renderer, images[o->img], &o->src, &o->dest, o->angle, NULL, SDL_FLIP_NONE);
-  }
- }
- if(o->parent) draw(o->child);
- }
- //delete (o);
-}
-void drawDebug(obj* o) {
- draw(o);
- SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
- SDL_RenderDrawRect(renderer, &o->dest);
- write(std::to_string(o->dest.x) + ", " +  std::to_string(o->dest.y), o->dest.x + 20, o->dest.y + 20);
- write(std::to_string(o->id) + " - " +  std::to_string(o->frame), o->dest.x + 20, o->dest.y + 40);
- //delete (o);
-}
-
-void draw(std::vector<obj*> os) {
- for(int o=0; o<os.size(); o++) {
-  draw(os[o]);
- }
- /*for (auto p : os) {
-  delete p;
- }
- os.clear();*/
-}
-void drawWithOffset(obj o) {
- obj tmp = o;
- tmp.dest.x -= offsetX;
- tmp.dest.y -= offsetY;
- draw(&tmp);
-}
-void drawWithOffset(std::vector<obj> os) {
- for(int o=0; o<os.size(); o++) {
-  drawWithOffset(os[o]);
- }
-}
-void draw(std::vector<obj> os) {
- for(auto o : os) {
-  draw(&o);
- }
-}
-void drawRect(SDL_Rect r, SDL_Color c) {
- SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
- SDL_RenderFillRect(renderer, &r);
-}
-void drawOutline(SDL_Rect r, SDL_Color c) {
- SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
- SDL_RenderDrawRect(renderer, &r);
-}
-bool inScreen(obj o) {
- return ((o.dest.x+o.dest.w)>-200) && ((o.dest.y+o.dest.h)>-200) && (o.dest.x-(o.dest.w*4)<WIDTH+200) && (o.dest.y-(o.dest.h*4)<HEIGHT+200);
-}
-bool inScreen(obj* o) {
- bool r =((o->dest.x+o->dest.w)>-200) && ((o->dest.y+o->dest.h)>-200) && (o->dest.x-(o->dest.w*4)<WIDTH+200) && (o->dest.y-(o->dest.h*4)<HEIGHT+200);
- //delete (o);
- return r;
-}
-std::vector<obj> buffer, buffer2;
-int bufLow, bufHigh;
-int drawToBuffer(obj o) {
- if(o.dest.y+o.dest.h > bufHigh) bufHigh=o.dest.y+o.dest.h;
- if(o.dest.y+o.dest.h < bufLow || bufLow==-99) bufLow=o.dest.y+o.dest.h;
- buffer.push_back(o);
- return buffer.size();
-}
-void drawBuffer() {
- for(int y=bufLow-500; y<bufHigh+500; y++) {
-  for(int b=0; b<buffer.size(); b++) {
-   if(buffer[b].dest.y+buffer[b].dest.h==y) {
-    buffer2.push_back(buffer[b]);
-    if(buffer[b].parent) buffer2.push_back(*buffer[b].child);
-   }
-  }
- }
- draw(buffer2);
- buffer.clear();
- buffer2.clear();
- bufLow=bufHigh=-99;
-}
-
-int ammo = 0;
-int mod = 0;
-int mod2 = 0;
-bool changingMod = false;
-//int ammoCount [5] = {999, 999, 999, 999, 999};
-int ammoCount[5] = {100,50,0,0,0};
-std::string mods[6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
-std::string mods2[6] = {"None", "Velocity", "Damage", "Bounce", "Random"};
-bool modsUnlocked[6] = {1,0,0,0,0,0};
-bool mods2Unlocked[5] = {1,0,0,0,0};
-void drawUI() {
- healthBar.w = maxHealthBar * (player.health / player.maxHealth);
- drawRect(healthBar, healthColor);//setColor(255, 90, 90));
- gunUI.src=gun.src;
- shellSelect.src.y = shellSelect.src.h * ammo;
- draw(&UI);
- draw(&gunUI);
- draw(&shellSelect);
- if(changingMod) draw(&modSelect);
- for(int a=0; a < 5; a++) {
-  write(std::to_string(ammoCount[a]), 220, a*23 + 35);
- }
- if(modsUnlocked[mod]) {write(mods[mod], 193, 6*23 + 16);} else {write("Locked", 193, 6*23 + 16);}
- if(mods2Unlocked[mod2]) {write(mods2[mod2], 193, 7*23 + 20);} else {write("Locked", 193, 7*23 + 20);}
- write(std::to_string(fps), 22, 5*40 + 28);
- write(std::to_string(offsetX) + ", " + std::to_string(offsetY), 22, 6*40 + 28);
-}
-
-void spawnEnemy(int cx, int cy, int type, int type2, int health) {
- enemyTmp.id = type;
- enemyTmp.frame = type2;
- enemyTmp.src.x=enemyTmp.src.w*type;
- enemyTmp.src.h=enemyTmp.src.h*type;
- enemyTmp.dest.x = cx;
- enemyTmp.dest.y = cy;
- enemyTmp.tick=50;
- enemyTmp.angle=0;
- enemyShadows.push_back(enemyShadow);
- enemyTmp.child=enemyShadows.size()-1;
- enemyTmp.health=health;
- enemies.push_back(enemyTmp);
-}
-void spawnEnemies(int cx, int cy, int cnt) {
- for(int x=cx-(cnt/2); x<cx+(cnt/2); x++) {
-  for(int y=cy-(cnt/2); y<cy+(cnt/2); y++) {
-   int type = rand() % 10;
-   if(type!=1) type=0;
-   if(map[y*map_width + x].id == FLOOR && rand() % 10 > 3) {spawnEnemy((x)*tile_size - (tile_size/2), (y)*tile_size - (tile_size/2), rand() % 5, type, 60+(40*type));}
-  }
- }
-}
-void dropChess(int cx, int cy, int type) {
- chessTmp.src.x=chessTmp.src.y=10;
- chessTmp.id = 5;
- chessTmp.dest.x = cx;
- chessTmp.dest.y = cy;
- chessTmp.tick=50;
- chessTmp.angle=0;
- chessTmp.dest.w=50;
- chessTmp.dest.h=50;
- chessTmp.src.h=10;
- chessTmp.src.w=10;
- shells.push_back(chessTmp);
-}
-void dropHeart(int cx, int cy, int type) {
- heartTmp.src.x=heartTmp.src.y=10;
- heartTmp.id = 6;
- heartTmp.dest.x = cx;
- heartTmp.dest.y = cy;
- heartTmp.tick=type;
- heartTmp.angle=0;
- heartTmp.dest.w=50;
- heartTmp.dest.h=50;
- heartTmp.src.h=10;
- heartTmp.src.w=10;
- shells.push_back(heartTmp);
-}
-void dropShell(int cx, int cy, int type) {
- //std::cout << cx-offsetX <<","<<cy-offsetY<<std::endl;
- shellTmp.id = type;
- shellTmp.dest.x = cx;
- shellTmp.dest.y = cy;
- shellTmp.tick=50;
- shellTmp.angle=0;
- shellTmp.dest.w=30;
- shellTmp.dest.h=22;
- shellTmp.src.h=7;
- shellTmp.src.w=8;
- shells.push_back(shellTmp);
-}
-void dropEmptyShell(int cx, int cy, double angle, int type) {
- /*shellTmp.dest.w=20;
- shellTmp.dest.h=12;
- shellTmp.id = -1;
- shellTmp.dest.x = cx;
- shellTmp.dest.y = cy;
- shellTmp.angle = angle;
- shellTmp.tick = 17;
- shells.push_back(shellTmp);*/
- ammoCount[type]--;
-}
-
+//world gen
+//flood
 int floodCount = 1;
 bool flood(int x, int y, int tick) {
  if(map[y*map_width + x].id == FLOOR && map[y*map_width + x].tick == 0) {
@@ -445,63 +204,92 @@ bool flood(int x, int y, int tick) {
  }
  return false;
 }
-
-void plantTree(int x, int y, int t) {
- if(map[y*map_width + x].id == FLOOR and t > 0) {
-  map[y*map_width + x].id = TREE;
-  map[y*map_width + x].flip = rand() % 2;
-  map[y*map_width + x].tick = rand() % 4;
-
-  plantTree(x-1,y-1,t-1);
-  plantTree(x+1,y-1,t-1);
-  plantTree(x,y-1,t-1);
-
-  plantTree(x-1,y+1,t-1);
-  plantTree(x+1,y+1,t-1);
-  plantTree(x,y+1,t-1);
-
-  plantTree(x-1,y,t-1);
-  plantTree(x+1,y,t-1);
+void dropChess(int x, int y) {
+    chess.id = 6;
+    chess.loc.x = x*tile_size + chess.loc.w/2;
+    chess.loc.y = y*tile_size + chess.loc.h/2;
+    collectables.push_back(chess);
+}
+void dropShell(int x, int y, int type) {
+    shell.id = type;
+    shell.src.x = shell.src.w * type;
+    shell.loc.x = x*tile_size + shell.loc.w/2;
+    shell.loc.y = y*tile_size + shell.loc.h/2;
+    shell.tick = 50;
+    collectables.push_back(shell);
+}
+void dropHeart(int x, int y, int type) {
+    heart.id = 7 + type;
+    heart.src.x = heart.src.w * type;
+    heart.loc.x = x*tile_size + heart.loc.w/2;
+    heart.loc.y = y*tile_size + heart.loc.h/2;
+    collectables.push_back(heart);
+}
+void spawnEnemy(int cx, int cy, int type, int type2, int health) {
+ enemy.id = type;
+ enemy.frame = type2;
+ enemy.src.x=enemy.src.w*type;
+ enemy.src.y=enemy.src.h*type2;
+ enemy.loc.x = cx;
+ enemy.loc.y = cy;
+ enemy.loc.w=enemy.loc.h=rand() % tile_size + tile_size*.5;
+ enemy.tick=50;
+ enemy.angle=0;
+ //enemyShadows.push_back(enemyShadow);
+ //enemy.child=enemyShadows.size()-1;
+ enemy.health=health;
+ enemies.push_back(enemy);
+}
+void spawnEnemies(int cx, int cy, int cnt) {
+ for(int x=cx-(cnt/2); x<cx+(cnt/2); x++) {
+  for(int y=cy-(cnt/2); y<cy+(cnt/2); y++) {
+   //if(x < lens.x/tile_size && x > (lens.x+WIDTH)/tile_size && y < lens.y/tile_size && y > (lens.y+HEIGHT)/tile_size) {
+    int type = rand() % 10;
+    if(type!=1) type=0;
+    if(map[y*map_width + x].id == FLOOR && rand() % 10 > 3) {spawnEnemy((x)*tile_size + (enemy.loc.w/2), (y)*tile_size + (enemy.loc.h/2), rand() % 5, type, 60+(140*type));}
+   //}
+  }
  }
 }
-
-void laySnow(int x, int y, int t) {
+//spread, snow, tree
+void spread(int x, int y, int t, int type) {
  if(map[y*map_width + x].id == FLOOR and t > 0) {
-  map[y*map_width + x].id = SNOW;
+  if((type == TREE && (map[y*map_width + x+1].id != WALL && map[y*map_width + x+1].id != TOP) && (map[y*map_width + x+2].id != WALL && map[y*map_width + x+2].id != TOP)) || type != TREE) {
+    map[y*map_width + x].id = type;
+    map[y*map_width + x].flip = rand() % 2;
+    map[y*map_width + x].tick = rand() % 4;
 
-  laySnow(x-1,y-1,t-1);
-  laySnow(x+1,y-1,t-1);
-  laySnow(x,y-1,t-1);
+    spread(x-1,y-1,t-1, type);
+    spread(x+1,y-1,t-1, type);
+    spread(x,y-1,t-1, type);
 
-  laySnow(x-1,y+1,t-1);
-  laySnow(x+1,y+1,t-1);
-  laySnow(x,y+1,t-1);
+    spread(x-1,y+1,t-1, type);
+    spread(x+1,y+1,t-1, type);
+    spread(x,y+1,t-1, type);
 
-  laySnow(x-1,y,t-1);
-  laySnow(x+1,y,t-1);
+    spread(x-1,y,t-1, type);
+    spread(x+1,y,t-1, type);
+  }
  }
 }
-
+//shuffle
 void shuffleMap() {
  map.clear();
- obj tile_tmp;
- tile_tmp.dest.w = tile_tmp.dest.h = tile_size;
+ tile tile_tmp;
+ tile_tmp.loc.w = tile_tmp.loc.h = tile_size;
  for(int y = 0; y < map_height; y++) {
-  tile_tmp.dest.y = tile_size * y;
+  tile_tmp.loc.y = tile_size * y;
   for(int x = 0; x < map_width; x++) {
    int of = rand() % 100;
-   tile_tmp.dest.x = tile_size * x;
+   tile_tmp.loc.x = tile_size * x;
    tile_tmp.id = TOP;
    if(of > 40) tile_tmp.id = FLOOR;
    map.push_back(tile_tmp);
   }
  }
 }
-
-bool spawnSet;
-SDL_Point spawn;
+//gen
 void genMap() {
- //map.clear();
  shuffleMap();
 
  int oc, tc;
@@ -560,18 +348,12 @@ void genMap() {
   map[y*map_width + 1].id = TOP;
   map[y*map_width + map_width-2].id = TOP;
   map[y*map_width + map_width-1].id = TOP;
-  /*int gt = rand() % 300;
-  if(gt == 1) {map[y*map_width + map_width-2].id = GATE; map[y*map_width + map_width-1].id = GATE;}
-  if(gt == 2) {map[y*map_width + 1].id = GATE; map[y*map_width + 1].id = GATE;}*/ //gate spawn
  }
  for(int x = 0; x < map_width; x++) {
   map[x].id = TOP;
   map[map_width + x].id = TOP;
   map[x + ((map_width-1)*(map_height-1))].id = TOP;
   map[x + ((map_width)*(map_height-1))].id = TOP;
-  /*int gt = rand() % 300;
-  if(gt == 1) {map[x].id = GATE; map[x + ((map_width-1)*(map_height-1))].id = GATE;}
-  if(gt == 2) {map[map_width + x].id = GATE; map[x + ((map_width)*(map_height-1))].id = GATE;}*/ //gateSpawn
  }
 
  for(int y = 2; y < map_height-2; y++) {
@@ -612,25 +394,28 @@ void genMap() {
  for(int y = 1; y < map_height-2; y++) {
   for(int x = 2; x < map_width-2; x++) {
    int t = rand() % 2000;
-   if(map[y*map_width + x].id == FLOOR && t < 4) plantTree(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
+   if(map[y*map_width + x].id == FLOOR && t < 4) spread(x, y, rand() % 5 + 2, TREE);
    t = rand() % 2000;
-   if(map[y*map_width + x].id == FLOOR && t < 4) laySnow(x, y, rand() % 5 + 2);//map[y*map_width + x].id = TREE;
+   if(map[y*map_width + x].id == FLOOR && t < 4) spread(x, y, rand() % 5 + 2, SNOW);
   }
  }
+ player.bExtra=0;
  for(int y = 2; y < map_height-2; y++) {
   for(int x = 2; x < map_width-2; x++) {
-   if(!spawnSet) {
+   if(!player.bExtra) {
     if(map[y*map_width + x].id == FLOOR) {
      if(map[y*map_width + x-1].id == FLOOR && map[y+1*map_width + x].id == FLOOR && map[y+1*map_width + x-1].id == FLOOR) {
       if(rand() % 100 == 1) {
-       spawn.x=x;spawn.y=y;
-       spawnSet=true;
+       player.loc.x=x*tile_size;player.loc.y=y*tile_size;
+       player.bExtra=true;
       }
      }
     }
    }
   }
  }
+ lens.x=camera.x-(lens.w/2);
+ lens.y=camera.y-(lens.h/2);
  for(int y = 0; y < map_height; y++) {
   for(int x = 0; x < map_width; x++) {
    if(map[y*map_width + x].id == FLOOR || map[y*map_width + x].id == TREE) {
@@ -704,8 +489,7 @@ void genMap() {
   }
  }
 }
-
-
+//floor
 void floorPer() {
  int c = 0;
  int wc = 0;
@@ -714,7 +498,7 @@ void floorPer() {
   if(tile.id == WALL) wc++;
  }
  if(wc == 0 || ((c*100)/(map.size()+1) + 1) < 30) {
-  std::vector<int> seeds;
+  /*std::vector<int> seeds;
   std::ifstream inFile;
   inFile.open("res/seeds.txt");
   if (inFile.is_open()) {
@@ -723,9 +507,8 @@ void floorPer() {
    seed = seeds[rand() % seeds.size()];
    srand(seed);
    std::cout << "SEED: " << seed << std::endl;
-   running=false;
    genMap();
-  }
+  }*/
  } else {
   std::ofstream out;
   out.open("res/seeds.txt", std::ios::app);
@@ -734,40 +517,30 @@ void floorPer() {
  }
  for(int y = 0; y < map_height; y++) {
   for(int x = 0; x < map_width; x++) {
-   if(map[y*map_width + x].id == FLOOR && rand() % 150 == 5) {dropShell((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), rand() % 5);
-   } else if(map[y*map_width + x].id == FLOOR && rand() % 1000 == 5) {dropChess((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), 1);
-   } else if(map[y*map_width + x].id == FLOOR && rand() % 200 == 5) {dropHeart((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), rand() % 2);}
+   if(map[y*map_width + x].id == FLOOR && rand() % 150 == 5) { dropShell(x, y, rand() % 5);
+   } else if(map[y*map_width + x].id == SNOW && rand() % 200 == 5) { dropChess(x, y);
+   } else if(map[y*map_width + x].id == FLOOR && rand() % 500 == 5) { dropHeart(x, y, rand() % 2); }
   }
  }
  for(int y = 3; y < map_height-4; y++) {
   for(int x = 3; x < map_width-4; x++) {
-   if(map[y*map_width + x].id == FLOOR && rand() % 600 == 5) {spawnEnemies(x, y, rand() % 8);}
+   if(map[y*map_width + x].id == FLOOR && rand() % 500 == 5) {spawnEnemies(x, y, rand() % 9);}
   }
  }
- /*
- std::cout << map_width*map_height << std::endl;
- std::cout << map.size() << std::endl;
- for(int i=0; i<map.size(); i++) {
-  std::cout << map[i].id;
-  if(i & map_width == 1) std::cout << std::endl;
- }
- std::cout << "SEED: " << seed << std::endl;
- */
 }
 
-const Uint8 *keystates;
-Uint32 mousestate;
-SDL_Event e;
+
+//input
 void input() {
     left=right=down=up=fire=0;
     int scroll = 0;
     int select = -1;
     keystates = SDL_GetKeyboardState(NULL);
-    while(SDL_PollEvent(&e)) {
-     if(e.type == SDL_QUIT) running=false;
-     if(e.type == SDL_MOUSEWHEEL) {
-      if(e.wheel.y>0) scroll=1;
-      if(e.wheel.y<0) scroll=-1;
+    while(SDL_PollEvent(&event)) {
+     if(event.type == SDL_QUIT) running=false;
+     if(event.type == SDL_MOUSEWHEEL) {
+      if(event.wheel.y>0) scroll=1;
+      if(event.wheel.y<0) scroll=-1;
      }
     }
     if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
@@ -775,7 +548,7 @@ void input() {
     if(keystates[SDL_SCANCODE_S] || keystates[SDL_SCANCODE_DOWN]) down=1;
     if(keystates[SDL_SCANCODE_A] || keystates[SDL_SCANCODE_LEFT]) left=1;
     if(keystates[SDL_SCANCODE_D] || keystates[SDL_SCANCODE_RIGHT]) right=1;
-    //if(keystates[SDL_SCANCODE_R]) genMap();
+    if(keystates[SDL_SCANCODE_Q]) freeroam=!freeroam;
     if(keystates[SDL_SCANCODE_1]) select=0;
     if(keystates[SDL_SCANCODE_2]) select=1;
     if(keystates[SDL_SCANCODE_3]) select=2;
@@ -783,11 +556,6 @@ void input() {
     if(keystates[SDL_SCANCODE_5]) select=4;
     if(keystates[SDL_SCANCODE_6]) select=5;
     if(keystates[SDL_SCANCODE_7]) select=6;
-    if(keystates[SDL_SCANCODE_P]) {
-     if(!lpaused){paused=true;}lpaused=1;
-    } else{
-     lpaused=0;
-    }
     changingMod = false;
     if(keystates[SDL_SCANCODE_LSHIFT]) {
      if(select != -1) mod = select;
@@ -807,6 +575,7 @@ void input() {
     mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
     if(mousestate == SDL_BUTTON_LEFT) fire=1;
 
+    //hard coded these but could use sizes but dont care atm
     if(ammo>4) ammo=0;
     if(ammo<0) ammo=4;
     if(mod>5) mod=0;
@@ -815,192 +584,136 @@ void input() {
     if(mod2<0) mod2=4;
 }
 
-int lengthSquare(int x1, int x2, int y1, int y2){
-    int xDiff = x1 - x2;
-    int yDiff = y1 - y2;
-    return xDiff*xDiff + yDiff*yDiff;
+//update
+double radToDeg(double a) {
+    return a * (180 / PI);
 }
-bool collideH, collideV, inSnow, wallCollide;
-int speed;
-bool lu, ld, ll, lr;
-void update() {
- if(player.health<=0) {
-  std::cout << "You died." << std::endl;
-  running = 0;
- }
- if(dayCycle) {
-  dayClock+=4;
-  if(dayClock>WIDTH*2*4) {
-   dayCycle=!dayCycle;
-  }
- } else {
-  dayClock-=4;
-  if(dayClock<=-WIDTH*4) {
-   dayCycle=!dayCycle;
-  }
- }
- lighting.dest.x=-dayClock;
- lighting.dest.y=-dayClock/2;
- lighting.dest.w=WIDTH + (2*(dayClock));
- lighting.dest.h=HEIGHT + (1*(dayClock));
- if(lighting.dest.w<WIDTH) {
-  lighting.dest.w=WIDTH;
-  lighting.dest.h=HEIGHT;
-  lighting.dest.x=lighting.dest.y=0;
- }
- for(int i=0; i < snowFall.size(); i++) {
-  snowFall[i].dest.y+=snowFall[i].vel;
-  snowFall[i].dest.x-=1.4;
-  snowFall[i].tick-=snowFall[i].vel;
-  if(snowFall[i].tick<0) {
-   snowFall.erase(snowFall.begin()+i);
-   i--;
-  }
- }
- if(rand() % 500 > 100) {
-  snowTmp.dest.x = rand() % WIDTH + offsetX;
-  snowTmp.dest.w = rand() % 10 + 7;
-  snowTmp.dest.h = snowTmp.dest.w * 1.3;
-  snowTmp.dest.y = 0 - snowTmp.dest.h + offsetY;
-  snowTmp.vel = rand() % 12 + 6;
-  snowTmp.tick = rand() % HEIGHT + 220;
-  snowFall.push_back(snowTmp);
- }
- speed = 16;
- if(inSnow) speed=4;
- if(player.health<=0) player.health=0;
- if(player.health>player.maxHealth) player.health=player.maxHealth;
- healthColor=red;
- if(inSnow) { player.health-=0.05; healthColor=blue;}
- player.lastVel=speed;
- if(collideV) {
-  if(lu) player.dest.y+=speed;
-  if(ld) player.dest.y-=speed;
- }
- if(collideH) {
-  if(ll) player.dest.x+=speed;
-  if(lr) player.dest.x-=speed;
- }
- //movement
- if(up) player.dest.y-=speed;
- if(down) player.dest.y+=speed;
- if(left) player.dest.x-=speed;
- if(right) player.dest.x+=speed;
-
- offsetX = player.dest.x - WIDTH/2 + player.dest.w/2;
- offsetY = player.dest.y - HEIGHT/2 + player.dest.h/4;
-
- if(!up && !down && !left && !right) {
-  player.tick+=3;
-  if(player.tick>199) player.tick=0;
-  player.src.x = round(player.tick/200) * player.src.w;
- } else {
-  //walking/running animations
-  int animCycle=3;//0//1//2//3
-  int animLength=6;//8//3//3//6
-  player.src.y=player.src.h*animCycle;
-  player.tick+=28;
-  if(inSnow)player.tick-=16;
-  if(player.tick>animLength*100-101) player.tick=0;
-  player.src.x = (round(player.tick/100)+3) * player.src.w;
-  if((right && player.flip) || (left && !player.flip)) player.src.x = (player.src.w*(animLength+3)) - ((round(player.tick/100)+3) * player.src.w);
- }
- gun.center.x=0;
- gun.flipV = player.flip;
- gun.tick++;
- if(gun.tick > 499) gun.tick=0;
- lu=up;ld=down;ll=left;lr=right;
+double degToRad(double a) {
+    return a * (PI / 180);
 }
-
-
-void fireBullet(int x, int y, double vel, double angle, int id, int type, int dmg, int bnc) {
- playSound(gunSound);
- bulletTmp.id = id;
- bulletTmp.frame = type;
- bulletTmp.dest.x = x;
- bulletTmp.dest.y = y;
- bulletTmp.vel = vel;
- bulletTmp.angle = angle;
- bulletTmp.extra = dmg;
- bulletTmp.extraBool = bnc;
- bullets.push_back(bulletTmp);
+double pointAt(double ax, double ay, double bx, double by) {
+    float xDistance = bx - ax;
+    float yDistance = by - ay;
+    return atan2(yDistance, xDistance);
 }
-obj tmpS, tmpB;
-void drawBullets() {
- for(int i=0; i<shells.size(); i++) {
-  tmpS = shells[i];
-  tmpS.img = shellTmp.img;
-  tmpS.dest.x -= offsetX;
-  tmpS.dest.y -= offsetY;
-  tmpS.dest.x -= tmpS.dest.w/2;
-  tmpS.dest.y -= tmpS.dest.h/2;
-  tmpS.src.x=8*5;
-  if(tmpS.id == -1) {
-   tmpS.dest.y -= sin((tmpS.tick)/6) * (player.dest.h/2);
-   int ang = tmpS.angle * 180 / PI;// % 360;
-   if(ang < 0) ang+=360;
-   if(ang > 90 && ang < 270) {
-    tmpS.dest.x -= tmpS.tick * 8 - 20;
-   } else {
-    tmpS.dest.x += tmpS.tick * 8 - 240;
-   }
-   shells[i].tick--;
-  }
-  //if(i==0) {std::cout << tmpS.dest.x << ","<< tmpS.dest.y<<std::endl;}
-  tmpS.src.x = tmpS.id * tmpS.src.w;
-  if(tmpS.id == -1 && inScreen(tmpS)) {
-   tmpS.angle = shells[i].angle  * 180 / PI;
-   draw(&tmpS);
-  }
-  if(shells[i].tick<-2) {
-   shells.erase(shells.begin()+i);
-   i--;
-  }
-  //std::cout << tmp.dest.x << " " << tmp.dest.y << " " << tmp.dest.w << " " << tmp.dest.h << " " << tmp.src.x << " " << tmp.src.y << " " << tmp.src.w << " " << tmp.src.h << std::endl;
- }
- for(int i=0; i<bullets.size(); i++) {
-  bullets[i].dest.x += bullets[i].vel * cos(bullets[i].angle);
-  bullets[i].dest.y += bullets[i].vel * sin(bullets[i].angle);
-  bullets[i].tick--;
-  if(bullets[i].tick<0) {
-   //playSound(shotSound);
-   bullets.erase(bullets.begin()+i);
-   i--;
-  }
-
-  tmpB = bullets[i];
-  tmpB.dest.x -= offsetX;
-  tmpB.dest.y -= offsetY;
-  tmpB.dest.x -= tmpB.dest.w/2;
-  tmpB.dest.y -= tmpB.dest.h/2;
-  if(inScreen(tmpB)) {
-   tmpB.angle = bullets[i].angle  * 180 / PI;
-   tmpB.src.x = tmpB.src.w * tmpB.frame;
-   draw(&tmpB);
-  }
- }
+void fireBullet(int id, double sx, double sy, double a, double type, double sw, double v, double dmg, bool bnc) {
+    playSound(gunSound);
+    bullet.id = id;
+    bullet.frame = type;
+    bullet.loc.x = sx;
+    bullet.loc.y = sy;
+    bullet.angle = a;
+    bullet.vel = v;
+    bullet.src.x = bullet.src.w * type;
+    double r = degToRad(a);
+    bullet.loc.x += sw * cos(r);
+    bullet.loc.y += sw * sin(r);
+    bullet.extra = dmg;
+    bullet.bExtra = bnc;
+    bullet.tick=500;
+    bullets.push_back(bullet);
 }
-obj shellPickUpTmp;
-void initBullet() {
- bulletTmp.tick=800;
- bulletTmp.dest.w=40;
- bulletTmp.dest.h=25;
- bulletTmp.src.w=8;
- bulletTmp.src.h=6;
- bulletTmp.src.y=0;
- bulletTmp.src.x=0;
- bulletTmp.img = setImage("res/bullets.png");
- bulletTmp.center.x = bulletTmp.dest.w/2;
- bulletTmp.center.y = bulletTmp.dest.h/2;
- bulletTmp.rotateOnCenter = true;
- shellTmp.src.w=8;
- shellTmp.src.h=6;
- shellTmp.src.x=shellTmp.src.y=0;
- shellTmp.img = setImage("res/shells.png");
+void updateBullets() {
+    if(fire) {
+        if(ammoCount[ammo] > 0) {
+            //std::string mods [6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
+            //std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce"};
+            int bDmg = 6;
+            bool bnc = 0;
+            double bVel = 40;
+            if(modsUnlocked[mod]) {
+                if(mods[mod] == "Velocity") bVel+=10;
+                if(mods[mod] == "Damage") bDmg+=8;
+                if(mods[mod] == "Bounce") bnc=1;
+            }
+            if(mods2Unlocked[mod2]) {
+            if(mods2[mod2] == "Bounce") bnc=1;
+            if(mods2[mod2] == "Velocity") bVel+=10;
+            if(mods2[mod2] == "Damage") bDmg+=8;
+            if(mods2[mod2] == "Random") {
+                int load;
+                bool jammed=1;
+                while(jammed) {
+                    load = rand() % 5;
+                    if(ammoCount[load]) {
+                        ammo = load;
+                        jammed=0;
+                    }
+                }
+            }
+            }
+            if(ammo == 1) bnc=1;
+            if(ammo == 2) bDmg+=8;
+            if(ammo == 3) {bDmg+=4;bVel+=4;}
+            if(ammo == 3) bVel+=8;
+            double px = gun.loc.x + gun.center.x - (bullet.loc.w/2);
+            double py = gun.loc.y + gun.center.y - (bullet.loc.h/2);
+            fireBullet(PLAYER_ID, px, py, gun.angle, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+            if(mods[mod] == "Burst" && modsUnlocked[mod]) {
+                fireBullet(PLAYER_ID, px, py, gun.angle-4, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+                fireBullet(PLAYER_ID, px, py, gun.angle-8, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+                fireBullet(PLAYER_ID, px, py, gun.angle+4, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+                fireBullet(PLAYER_ID, px, py, gun.angle+8, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+            }
+            if(mods[mod] == "Wave" && modsUnlocked[mod]) {
+                fireBullet(PLAYER_ID, px, py, gun.angle-40, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+                fireBullet(PLAYER_ID, px, py, gun.angle-80, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+                fireBullet(PLAYER_ID, px, py, gun.angle+40, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+                fireBullet(PLAYER_ID, px, py, gun.angle+80, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
+            }
+            ammoCount[ammo]--;
+        }
+        cursor.frame=1;
+    } else {
+        if(cursor.frame==2) cursor.frame=0;
+        if(cursor.frame==1) cursor.frame=2;
+    }
+    for(int b=0; b<bullets.size(); b++) {
+        double r = degToRad(bullets[b].angle);
+        bullets[b].loc.x += bullets[b].vel * cos(r);
+        bullets[b].loc.y += bullets[b].vel * sin(r);
+        bullets[b].tick--;
+        for(auto m:map) {
+            if(m.id == TOP && SDL_HasIntersection(&bullets[b].loc, &m.loc)) {
+                bullets[b].tick -= 50;
+                if(bullets[b].bExtra) {
+                    bullets[b].angle+=180;
+                    bullets[b].angle+=rand() % 40 - 20;
+                }
+            }
+        }
+        if(bullets[b].id != PLAYER_ID && SDL_HasIntersection(&player.loc, &bullets[b].loc)) {
+            player.health-=bullets[b].extra;
+            bullets[b].tick = -100;
+        }
+        if(bullets[b].tick < 0) {
+            bullets.erase(bullets.begin()+b);
+            b--;
+        }
+    }
+    if(fire && !lfire) {
+        gun.loc.y-=4;
+        if(gun.flipV) {
+            gun.loc.x+=16;
+        } else {
+            gun.loc.x-=16;
+        }
+    } else if(lfire && !fire) {
+        gun.loc.y-=4;
+        if(gun.flipV) {
+            gun.loc.x+=8;
+        } else {
+            gun.loc.x-=8;
+        }
+    }
+    lfire = fire;
 }
-
+bool inCamView(SDL_Rect loc) {
+    return SDL_HasIntersection(&loc, &lens);
+}
+//enemies
 void updateEnemies() {
- if(enemies.size() == 0) {
+ /*if(enemies.size() == 0) {
   for(int y = 3; y < map_height-4; y++) {
    for(int x = 3; x < map_width-4; x++) {
     if(map[y*map_width + x].id == FLOOR && rand() % 600 == 5) {spawnEnemies(x, y, rand() % 8);}
@@ -1015,38 +728,25 @@ void updateEnemies() {
     } else if(map[y*map_width + x].id == FLOOR && rand() % 200 == 5) {dropHeart((x)*tile_size - (tile_size/2) + tile_size, (y)*tile_size - (tile_size/2), rand() % 2);}
    }
   }
- }
+ }*/
  for(int e=0; e<enemies.size(); e++) {
   if(enemies[e].health<=0) {
-   int dropX = enemies[e].dest.x;
-   int dropY = enemies[e].dest.y;
+   int dropX = enemies[e].loc.x / tile_size;
+   int dropY = enemies[e].loc.y / tile_size;
    dropShell(dropX, dropY, enemies[e].id);
-   //dropChess(dropX, dropY, 1);
-   //dropHeart(dropX, dropY, rand() % 2);
+   if(enemies[e].frame == 1) dropChess(dropX, dropY);
+   if(rand() % 6 == 1) dropHeart(dropX, dropY, rand() % 2);
    enemies.erase(enemies.begin()+e);
    e--;
   }
-  enemies[e].img = enemyTmp.img;
-  enemyShadows[e] = enemyShadow;
-  enemyShadows[e].dest=enemyTmp.dest;
-  enemies[e].src = enemyTmp.src;
-  enemies[e].dest.h=enemies[e].dest.w=(player.dest.w+player.dest.h)/2;
-  enemyTmp = enemies[e];
-  enemyTmp.dest.x -= offsetX;
-  enemyTmp.dest.y -= offsetY;
-  enemyTmp.parent=0;
-  if(inScreen(&enemyTmp)) {
-   enemyTmp.src.x=enemies[e].src.w*enemies[e].id;
-   enemyTmp.src.y=enemies[e].src.h*enemies[e].frame;
-   enemyShadows[e].dest.y+=enemies[e].dest.h*.7;
-
-   float xDistance = round(enemies[e].dest.x + enemyTmp.dest.w/2 - player.dest.x - (player.dest.w/2));
-   float yDistance = round(enemies[e].dest.y + enemyTmp.dest.h/2 - player.dest.y - (player.dest.h/2));
+  if(inCamView(enemies[e].loc)) {
+   float xDistance = round(enemies[e].loc.x + enemy.loc.w/2 - player.loc.x - (player.loc.w/2));
+   float yDistance = round(enemies[e].loc.y + enemy.loc.h/2 - player.loc.y - (player.loc.h/2));
    float ang = (atan2(yDistance, xDistance));// * 180 / PI;
    int sp = 10;
    if(enemies[e].frame == 1) sp=20;
-   enemies[e].dest.x += sp * cos(ang * 180 / PI);
-   enemies[e].dest.y += sp * sin(ang * 180 / PI);
+   enemies[e].loc.x += sp * cos(ang * 180 / PI);
+   enemies[e].loc.y += sp * sin(ang * 180 / PI);
    int bType = enemies[e].id;
    double bnc=0;
    int bDmg = 5;
@@ -1057,376 +757,545 @@ void updateEnemies() {
    if(bType == 3) {bDmg+=3;bV+=4;}
    if(bType == 3) bV+=8;
    if(rand() % 30 == 1) {
-    fireBullet(enemies[e].dest.x + enemyTmp.dest.w/2 + bulletTmp.dest.w/2, enemies[e].dest.y + enemyTmp.dest.h/2 + bulletTmp.dest.h/2, bV, ang-PI, 2, enemies[e].id, bDmg, bnc);
-    if(enemies[e].frame == 1) {
+    //fireBullet(int id, double sx, double sy, double a, double type, double sw, double v, double dmg, bool bnc)
+    fireBullet(ENEMY_ID, enemies[e].loc.x + enemy.loc.w/2 + bullet.loc.w/2, 
+    enemies[e].loc.y + enemy.loc.h/2 + bullet.loc.h/2, radToDeg(ang)+180, enemies[e].id, 0, bV, bDmg, bnc);
+    /*if(enemies[e].frame == 1) {
      int f = rand() % 12;
      if(f==0) {
-      fireBullet(enemies[e].dest.x + enemyTmp.dest.w/2 + bulletTmp.dest.w/2, enemies[e].dest.y + enemyTmp.dest.h/2 + bulletTmp.dest.h/2, bV, ang-PI-.04, 2, enemies[e].id, bDmg, bnc);
-      fireBullet(enemies[e].dest.x + enemyTmp.dest.w/2 + bulletTmp.dest.w/2, enemies[e].dest.y + enemyTmp.dest.h/2 + bulletTmp.dest.h/2, bV, ang-PI+.04, 2, enemies[e].id, bDmg, bnc);
+      fireBullet(enemies[e].loc.x + enemy.loc.w/2 + bulletTmp.loc.w/2, enemies[e].loc.y + enemy.loc.h/2 + bulletTmp.loc.h/2, bV, ang-PI-.04, 2, enemies[e].id, bDmg, bnc);
+      fireBullet(enemies[e].loc.x + enemy.loc.w/2 + bulletTmp.loc.w/2, enemies[e].loc.y + enemy.loc.h/2 + bulletTmp.loc.h/2, bV, ang-PI+.04, 2, enemies[e].id, bDmg, bnc);
      } else if(f==1) {
-      fireBullet(enemies[e].dest.x + enemyTmp.dest.w/2 + bulletTmp.dest.w/2, enemies[e].dest.y + enemyTmp.dest.h/2 + bulletTmp.dest.h/2, bV, ang, 2, enemies[e].id, bDmg, bnc);
-      fireBullet(enemies[e].dest.x + enemyTmp.dest.w/2 + bulletTmp.dest.w/2, enemies[e].dest.y + enemyTmp.dest.h/2 + bulletTmp.dest.h/2, bV, ang-PI/2, 2, enemies[e].id, bDmg, bnc);
-      fireBullet(enemies[e].dest.x + enemyTmp.dest.w/2 + bulletTmp.dest.w/2, enemies[e].dest.y + enemyTmp.dest.h/2 + bulletTmp.dest.h/2, bV, ang+PI/2, 2, enemies[e].id, bDmg, bnc);
+      fireBullet(enemies[e].loc.x + enemy.loc.w/2 + bulletTmp.loc.w/2, enemies[e].loc.y + enemy.loc.h/2 + bulletTmp.loc.h/2, bV, ang, 2, enemies[e].id, bDmg, bnc);
+      fireBullet(enemies[e].loc.x + enemy.loc.w/2 + bulletTmp.loc.w/2, enemies[e].loc.y + enemy.loc.h/2 + bulletTmp.loc.h/2, bV, ang-PI/2, 2, enemies[e].id, bDmg, bnc);
+      fireBullet(enemies[e].loc.x + enemy.loc.w/2 + bulletTmp.loc.w/2, enemies[e].loc.y + enemy.loc.h/2 + bulletTmp.loc.h/2, bV, ang+PI/2, 2, enemies[e].id, bDmg, bnc);
      }
-    }
+    }*/
    }
    for(int i=0; i<bullets.size(); i++) {
-    if(bullets[i].id==1) {
-     SDL_Rect tmpb = bullets[i].dest;
-     tmpb.x -= offsetX;
-     tmpb.y -= offsetY;
-     if(SDL_HasIntersection(&tmpb, &enemyTmp.dest)) {bullets[i].tick=0; enemies[e].health-=bullets[i].extra; enemyTmp.src.x=enemyTmp.src.w*5;}
+    enemies[e].src.x=enemies[e].src.w*enemies[e].id;
+    if(bullets[i].id==PLAYER_ID && bullets[i].frame!=enemies[e].id) {
+     if(SDL_HasIntersection(&bullets[i].loc, &enemies[e].loc)) {bullets[i].tick=0; enemies[e].health-=bullets[i].extra; enemies[e].src.x=enemies[e].src.w*5;}
     }
    }
-   drawToBuffer(enemyShadows[e]);
-   drawToBuffer(enemyTmp);
   }
-  //drawToBuffer(enemyTmp.child);
-  //std::cout << e << std::endl;
-  //drawWithOffset(enemies[e]);
-  /*std::cout << enemyShadows[e].id << ", " << enemyShadows[e].img << std::endl;
-  std::cout << enemyShadows[e].src.x << ", " << enemyShadows[e].src.y << std::endl;
-  std::cout << enemyShadows[e].src.w << "x" << enemyShadows[e].src.h << std::endl;
-  std::cout << enemies[e].dest.x << ", " << enemies[e].dest.y << std::endl;
-  std::cout << enemyShadows[e].dest.x << ", " << enemyShadows[e].dest.y << std::endl;
-  std::cout << enemyShadows[e].dest.w << "x" << enemyShadows[e].dest.h << std::endl;
-  std::cout << std::endl;*/
  }
 }
+//
+void update() {
+    if(modsUnlocked[mod]) {gun.src.x = mod * gun.src.w;} else {gun.src.x = 0;}
+    gun.src.y = ammo * gun.src.h;
+    for(auto c = 0; c < collectables.size(); c++) {
+        bool del = 1;
+        if(SDL_HasIntersection(&player.loc, &collectables[c].loc)) {
+            if(collectables[c].id < 5) { //ammo
+                ammoCount[collectables[c].id] += collectables[c].tick;
+                if(ammoCount[ammo] == 0) ammo = collectables[c].id;
+            } else if(collectables[c].id == 6) { //chess mod 1
+                if(rand() % 2) {
+                    bool unlock=1;
+                    int cnt = 0;
+                    bool stuck = 0;
+                    while(unlock) {
+                        int u = rand() % 5 + 1;
+                        if(!modsUnlocked[u]) {modsUnlocked[u]=1; mod=u; unlock=0;}
+                        cnt++;
+                        if(cnt > 10) {
+                            stuck=1;
+                            unlock=0;
+                        }
+                    }
+                    if(stuck) {
+                            for(int i=0; i<6; i++) {
+                                if(!modsUnlocked[i]) {modsUnlocked[i]=1; mod=i;i=1000;}
+                            }
+                    }
+                } else { //chess mod 2
+                    bool unlock=1;
+                    int cnt = 0;
+                    bool stuck = 0;
+                    while(unlock) {
+                        int u = rand() % 4 + 1;
+                        if(!mods2Unlocked[u]) {mods2Unlocked[u]=1; mod2=u; unlock=0;}
+                        cnt++;
+                        if(cnt > 10) {
+                            stuck=1;
+                            unlock=0;
+                        }
+                    }
+                    if(stuck) {
+                            for(int i=0; i<5; i++) {
+                                if(!mods2Unlocked[i]) {mods2Unlocked[i]=1; mod2=i;i=1000;}
+                            }
+                    }
+                }
+            } else { //heart
+                if(player.health != player.maxHealth) {
+                    player.health += (collectables[c].id - 6) * 50;
+                } else {
+                    del=false;
+                }
+            }
+            if(del) {
+                collectables.erase(collectables.begin()+c);
+                c--;
+            }
+        }
+    }
+    for(int i=0; i < snowFall.size(); i++) {
+        snowFall[i].loc.y+=snowFall[i].vel;
+        snowFall[i].loc.x-=1.4;
+        snowFall[i].tick-=snowFall[i].vel;
+        if(snowFall[i].tick<0) {
+            snowFall.erase(snowFall.begin()+i);
+            i--;
+        }
+    }
+    if(rand() % 500 > 100) {
+        snowTmp.loc.x = rand() % WIDTH + lens.x;
+        snowTmp.loc.w = rand() % 10 + 7;
+        snowTmp.loc.h = snowTmp.loc.w * 1.3;
+        snowTmp.loc.y = 0 - snowTmp.loc.h + lens.y;
+        snowTmp.vel = rand() % 12 + 6;
+        snowTmp.tick = rand() % HEIGHT*3 + 220;
+        snowFall.push_back(snowTmp);
+    }
+    //setCamera(collectables[0]);
+    lens.x=camera.x-(lens.w/2);
+    lens.y=camera.y-(lens.h/2);
+    //playMusic(song);
+    bool inSnow = 0;
+    if(player.health > player.maxHealth) player.health=player.maxHealth;
+    if(player.health <=0) {player.health=0;player.alive=false;}
+    if(freeroam) {
+        if(up) camera.y-=20;
+        if(down) camera.y+=20;
+        if(left) camera.x-=20;
+        if(right) camera.x+=20;
+    } else {
+        healthColor = red;
+        player.vel = 16;
+        for(auto m : map) {
+            if(m.id == SNOW && SDL_HasIntersection(&player.loc, &m.loc)) {
+                player.vel = 4;
+                player.health-=0.05;
+                healthColor = blue;
+                inSnow=1;
+            }
+        }
+        if(left || right || up || down) {
+            footTick++;
+            player.collideH=player.collideV=player.bExtra=false;
+            if(left) player.loc.x-=player.vel;
+            if(right) player.loc.x+=player.vel;
+            double slide;
+            for(auto m : map) {
+                if(m.id == TOP && SDL_HasIntersection(&player.loc, &m.loc)) {
+                    player.collideH = true;
+                    slide = player.loc.x + player.loc.w - m.loc.x;
+                    if(left) slide = m.loc.x + m.loc.w - player.loc.x;
+                }
+                if(m.id == WALL && SDL_HasIntersection(&player.loc, &m.loc)) player.bExtra=true; //wallcollision
+            }
+            if(player.collideH) {
+                if(left) player.loc.x+=slide;
+                if(right) player.loc.x-=slide;
+            }
+            if(up) player.loc.y-=player.vel;
+            if(down) player.loc.y+=player.vel;
+            slide = 0;
+            for(auto m : map) {
+                if(m.id == TOP && SDL_HasIntersection(&player.loc, &m.loc)) {
+                    player.collideV = true;
+                    slide = player.loc.y + player.loc.h - m.loc.y;
+                    if(up) slide = m.loc.y + m.loc.h - player.loc.y;
+                }
+            }
+            if(player.collideV) {
+                if(up) player.loc.y+=slide+1;
+                if(down) player.loc.y-=slide;
+            }
+            //walking/running animation
+            int animCycle=3;//0//1//2//3
+            int animLength=6;//8//3//3//6
+            player.src.y=player.src.h*animCycle;
+            player.tick+=28;
+            if(inSnow)player.tick-=16;
+            if(player.tick>animLength*100-101) player.tick=0;
+            player.src.x = (round(player.tick/100)+3) * player.src.w;
+            if((right && player.flipH) || (left && !player.flipH)) player.src.x = (player.src.w*(animLength+3)) - ((round(player.tick/100)+3) * player.src.w);
+        } else {
+            footTick--;
+            //idle animation
+            player.tick+=3;
+            if(player.tick>199) player.tick=0;
+            player.src.x = round(player.tick/200) * player.src.w;
+        }
+        if(footTick>3) {
+            footTick=0;
+            footTmp.loc.x = player.loc.x + (player.loc.w/2) - (footTmp.loc.w/2);
+            footTmp.loc.y = player.loc.y + player.loc.h - footTmp.loc.h;
+            footTmp.angle = gun.angle;
+            if(footTmp.src.x==0) {
+                footTmp.src.x=footTmp.src.w;
+            } else {
+                footTmp.src.x=0;
+            }
+            if(!player.bExtra && !player.collideV && !player.collideH) footPrints.push_back(footTmp);
+        }
+        if(footTick<0)footTick=0;
+        for(int f=0; f<footPrints.size(); f++) {
+            footPrints[f].tick--;
+            if(footPrints[f].tick<200)footPrints[f].src.y=footPrints[f].src.h * 1;
+            if(footPrints[f].tick<100)footPrints[f].src.y=footPrints[f].src.h * 2;
+            if(footPrints[f].tick<40)footPrints[f].src.y=footPrints[f].src.h * 3;
+            if(footPrints[f].tick<0) {
+                footPrints.erase(footPrints.begin()+f);
+                f--;
+            }
+        }
+        //setCamera(player);
+    }
 
-bool lfire = 0;
+    cursor.loc.x=mouse.x-cursor.loc.w/2;cursor.loc.y=mouse.y-cursor.loc.h/2;
+    player.flipH = 1;
+    if(mouse.x > player.loc.x - lens.x) player.flipH=0;
+    gun.loc = initRect(player.loc.x, player.loc.y + player.loc.h*.35, gun.loc.w, gun.loc.h);
+    gun.flipH = player.flipH;
+    if(gun.flipH) {
+        gun.loc.x += player.loc.w*.6;
+        gun.center.x = 0;
+        gun.flipV = 1;
+    } else {
+        gun.loc.x += player.loc.h*.3;
+        gun.center.x = 0;
+        gun.flipV = 0;
+    }
+    gun.angle = radToDeg(pointAt(gun.loc.x + gun.center.x - (bullet.loc.w/2) - lens.x, gun.loc.y + gun.center.y - (bullet.loc.h/2) - lens.y, mouse.x, mouse.y));
+    cursor.angle = gun.angle;
+    updateEnemies();
+    updateBullets();
+    if(dayCycle) {
+        dayClock+=4;
+        if(dayClock>WIDTH*2*4) {
+            dayCycle=!dayCycle;
+        }
+    } else {
+        dayClock-=4;
+        if(dayClock<=-WIDTH*4) {
+            dayCycle=!dayCycle;
+        }
+    }
+    lighting.loc = lens;
+    lighting.loc.x-=dayClock;
+    lighting.loc.y-=dayClock/2;
+    lighting.loc.w=WIDTH + (2*(dayClock));
+    lighting.loc.h=HEIGHT + (1*(dayClock));
+    if(lighting.loc.w<WIDTH) lighting.loc = lens;
+    setCamera(player);
+}
+//bullets
+//enemies
+//player
+//snow
+//world
+//pickups
+
+//render
+//write
+void write(std::string t, int x, int y) {
+ SDL_Surface *text_surface;
+ SDL_Texture *text_texture;
+ SDL_Rect wrect;
+ const char *text = t.c_str();
+ if (font == NULL) {
+  fprintf(stderr, "error: font not found\n");
+  exit(EXIT_FAILURE);
+ }
+ text_surface = TTF_RenderText_Solid(font, text, font_color);
+ text_texture = SDL_CreateTextureFromSurface(renderer, text_surface);
+ wrect.w = text_surface->w;
+ wrect.h = text_surface->h;
+ wrect.x = x;
+ wrect.y = y;
+ SDL_FreeSurface(text_surface);
+ SDL_RenderCopy(renderer, text_texture, NULL, &wrect);
+ SDL_DestroyTexture(text_texture);
+}
+//images
+std::vector<SDL_Texture*> images;
+int setImage(std::string filename) {
+ images.push_back(IMG_LoadTexture(renderer, filename.c_str()));
+ return images.size()-1;
+}
+//drawing
+
+void draw(tile t) {
+    if(inCamView(t.loc)) {
+        SDL_Rect dest, src;
+        dest = t.loc;
+        dest.x-=lens.x;
+        dest.y-=lens.y;
+        src.w=src.h=20;
+        src.y=0;
+        src.x=src.w*t.frame;
+        if(t.flip) {
+            SDL_RenderCopyEx(renderer, images[tileImgId], &src, &dest, 0, NULL, SDL_FLIP_HORIZONTAL);
+        } else {
+            SDL_RenderCopyEx(renderer, images[tileImgId], &src, &dest, 0, NULL, SDL_FLIP_NONE);
+        }
+        if(debug) {
+            SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+            SDL_RenderDrawRect(renderer, &dest);
+            write(std::to_string(src.x) + ", " +  std::to_string(src.y), dest.x + 20, dest.y + 20);
+            write(std::to_string(t.id) + " - " +  std::to_string(t.frame), dest.x + 20, dest.y + 40);
+        }
+    }
+}
+void draw(obj o) {
+    if(inCamView(o.loc)) {
+        SDL_Rect dest;
+        dest = o.loc;
+        dest.x-=lens.x;
+        dest.y-=lens.y;
+        SDL_RendererFlip flip = SDL_FLIP_NONE;
+        if(o.flipH) flip = SDL_FLIP_HORIZONTAL;
+        if(o.flipV) flip = SDL_FLIP_VERTICAL;
+        if(o.rotateOnCenter) {
+            SDL_RenderCopyEx(renderer, images[o.img], &o.src, &dest, o.angle, &o.center, flip);
+        } else {
+            SDL_RenderCopyEx(renderer, images[o.img], &o.src, &dest, o.angle, NULL, flip);
+        }
+        if(o.parent) {
+            for(int c=0; c<o.children.size(); c++) {
+                draw(*o.children[c]);
+            }
+        }
+        if(debug) {
+            SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+            SDL_RenderDrawRect(renderer, &dest);
+            write(std::to_string(o.src.x) + ", " +  std::to_string(o.src.y), dest.x + 20, dest.y + 20);
+            write(std::to_string(o.id) + " - " +  std::to_string(o.frame), dest.x + 20, dest.y + 40);
+        }
+    }
+}
+void drawDebug(obj o) {
+    debug=1;
+    draw(o);
+    debug=0;
+}
+void draw(std::vector<obj> os) {
+    for(auto o:os) draw(o);
+}
+void drawDebug(std::vector<obj> os) {
+    for(auto o:os) drawDebug(o);
+}
+void drawRectUpfront(SDL_Rect r, SDL_Color c) {
+ SDL_SetRenderDrawColor(renderer, c.r, c.g, c.b, c.a);
+ SDL_RenderFillRect(renderer, &r);
+}
+void drawUpfront(obj o) {
+    SDL_RendererFlip flip = SDL_FLIP_NONE;
+    if(o.flipH) flip = SDL_FLIP_HORIZONTAL;
+    if(o.flipV) flip = SDL_FLIP_VERTICAL;
+    if(o.rotateOnCenter) {
+        SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.loc, o.angle, &o.center, flip);
+    } else {
+        SDL_RenderCopyEx(renderer, images[o.img], &o.src, &o.loc, o.angle, NULL, flip);
+    }
+    if(debug) {
+        SDL_SetRenderDrawColor(renderer, 0, 255, 255, 255);
+        SDL_RenderDrawRect(renderer, &o.loc);
+        write(std::to_string(o.src.x) + ", " +  std::to_string(o.src.y), o.loc.x + 20, o.loc.y + 20);
+        write(std::to_string(o.id) + " - " +  std::to_string(o.frame), o.loc.x + 20, o.loc.y + 40);
+    }
+}
+void drawMap() {
+    for(auto m : map) {
+        draw(m);
+    }
+}
+void drawUI() {
+    healthBar.w = maxHealthBar * (player.health / player.maxHealth);
+    drawRectUpfront(healthBar, healthColor);
+    gunUI.src=gun.src;
+    shellSelect.src.y = shellSelect.src.h * ammo;
+    drawUpfront(UI);
+    drawUpfront(gunUI);
+    drawUpfront(shellSelect);
+    if(changingMod) drawUpfront(modSelect);
+    for(int a=0; a < 5; a++) {
+        write(std::to_string(ammoCount[a]), 220, a*23 + 35);
+    }
+    if(modsUnlocked[mod]) {write(mods[mod], 193, 6*23 + 16);} else {write("Locked", 193, 6*23 + 16);}
+    if(mods2Unlocked[mod2]) {write(mods2[mod2], 193, 7*23 + 20);} else {write("Locked", 193, 7*23 + 20);}
+    write(std::to_string(fps), 22, 5*40 + 28);
+    write(std::to_string(camera.x) + ", " + std::to_string(camera.y), 22, 6*40 + 16);
+    //SDL_RenderDrawLine(renderer, gun.loc.x + gun.center.x - (bullet.loc.w/2) - lens.x, gun.loc.y + gun.center.y - (bullet.loc.h/2) - lens.y, mouse.loc.x, mouse.loc.y);
+}
+std::vector<obj> buffer, organizedBuffer;
+int bufLow, bufHigh;
+void drawToBuffer(obj o) {
+    if(o.loc.y+o.loc.h > bufHigh) bufHigh=o.loc.y+o.loc.h;
+    if(o.loc.y+o.loc.h < bufLow || bufLow==-99) bufLow=o.loc.y+o.loc.h;
+    buffer.push_back(o);
+}
+void drawBuffer() {
+    for(int y=bufLow-500; y<bufHigh+500; y++) {
+        for(int b=0; b<buffer.size(); b++) {
+            if(buffer[b].loc.y+buffer[b].loc.h==y) {
+                organizedBuffer.push_back(buffer[b]);
+                if(buffer[b].parent) {
+                    for(int c=0; c<buffer[b].children.size(); c++) {
+                        organizedBuffer.push_back(*buffer[b].children[c]);
+                    }
+                }
+            }
+        }
+    }
+    draw(organizedBuffer);
+    buffer.clear();
+    organizedBuffer.clear();
+    bufLow=bufHigh=-99;
+}
+//
 void render() {
  SDL_SetRenderDrawColor(renderer, bkg.r, bkg.g, bkg.b, bkg.a);
  SDL_RenderClear(renderer);
-
  frameCount++;
  timerFPS = SDL_GetTicks()-lastFrame;
  if(timerFPS<(1000/setFPS)) {
   SDL_Delay((1000/setFPS)-timerFPS);
  }
- obj tmp, tmp2, tmp3;
- tmp = player;
- tmp.dest.x -= offsetX;
- tmp.dest.y -= offsetY;
- player.flip=1;
- if(mouse.x > tmp.dest.x+(tmp.dest.w/2)) player.flip=0;
 
- collideV = collideH = inSnow = wallCollide = false;
-
- obj tmp20;
- std::vector<obj> tmpTrees;
- std::vector<int> tmpTreesCnt;
- int count = 0;
- for(auto tile : map) {
-  tmp20 = tile;
-  tmp20.dest.x -= offsetX;
-  tmp20.dest.y -= offsetY;
-
-  if(inScreen(tmp20)) {
-   tmp20.img = tilesImgId;
-   tmp20.src.x=tmp20.src.y=0;
-   tmp20.src.w=20;tmp20.src.h=20;
-   if(tile.id == WALL || tile.id == FLOOR || tile.id == TREE || tile.id == TOP || tile.id == SNOW) {
-    if(tile.id == WALL && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) wallCollide = true;
-     tmp20.src.x = tmp20.frame * tmp20.src.w;
-     draw(&tmp20);
-   } else if(tile.id == GATE) {
-    drawRect(tmp20.dest, setColor(200, 90, 90));
-   }
-   if(tile.id == TREE) {
-    tmpTrees.push_back(tile);
-    tmpTreesCnt.push_back(count);
-   }
-   if(tile.id == SNOW && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) inSnow=true;
-   if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp.dest)) {
-    obj otmp, otmp2;
-    otmp=tmp;
-    if(ll) otmp.dest.x+=player.lastVel;
-    if(lr) otmp.dest.x-=player.lastVel;
-    if(lu) otmp.dest.y+=player.lastVel;
-    if(ld) otmp.dest.y-=player.lastVel;
-    otmp2=otmp;
-    if(ll) {
-     otmp = otmp2;
-     otmp.dest.x-=player.lastVel;
-     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideH = true;
-    } else if(lr) {
-     otmp = otmp2;
-     otmp.dest.x+=player.lastVel;
-     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideH = true;
-    }
-    if(ld) {
-     otmp = otmp2;
-     otmp.dest.y+=player.lastVel;
-     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideV = true;
-    } else if(lu) {
-     otmp = otmp2;
-     otmp.dest.y-=player.lastVel;
-     if(SDL_HasIntersection(&tmp20.dest, &otmp.dest)) collideV = true;
-    }
-   }
-   for(int g=0; g<bullets.size(); g++) {
-    SDL_Rect tmp5 = bullets[g].dest;
-    tmp5.x -= offsetX;
-    tmp5.y -= offsetY;
-    double turn = rand() % 16 - 8;
-    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5)) bullets[g].tick-=80;
-    if(tile.id == TOP && SDL_HasIntersection(&tmp20.dest, &tmp5) && bullets[g].extraBool) { bullets[g].vel=-bullets[g].vel; bullets[g].angle+=(turn/10); }
-    //player hit
-    if(bullets[g].id == 2 && SDL_HasIntersection(&tmp5, &tmp.dest)) {
-     player.health-=bullets[g].extra;
-     bullets.erase(bullets.begin()+g);
-     g--;
-    }
-   }
-  }
-
-  count++;
- }
- drawWithOffset(footprints);
- for(int i=0; i<tmpTrees.size(); i++) {
-  tmpTrees[i].dest.x -= offsetX;
-  tmpTrees[i].dest.y -= offsetY;
-  if(tmpTrees[i].id == TREE && map[tmpTreesCnt[i]+1].id != TOP) {
-   treeObj.dest.x = tmpTrees[i].dest.x + ((tmpTreesCnt[i]/map_width)%2)*42;
-   treeObj.dest.y = tmpTrees[i].dest.y - (treeObj.dest.h-tile_size) - 3;
-
-   treeObj.flip = tmpTrees[i].flip;
-   treeObj.src.x = tmpTrees[i].tick * treeObj.src.w;
-   drawToBuffer(treeObj);
-  }
-
- }
-
-
- SDL_Point tmpMouse;
- tmpMouse.x = cursor.dest.x + bulletTmp.dest.w;
- tmpMouse.y = cursor.dest.y + bulletTmp.dest.h;
- if((mouse.x<(WIDTH/2) && mouse.y<(HEIGHT/2)) || (mouse.x>(WIDTH/2) && mouse.y>(HEIGHT/2))) {
-  tmpMouse.y-=bulletTmp.dest.h;
- }
-
-
- gun.src.y = gun.src.h * ammo;
- gun.src.x = 0;
- if(modsUnlocked[mod]) gun.src.x = gun.src.w * mod;
- tmp2 = gun;
- tmp2.dest.x = tmp.dest.x + 30;
- if(tmp2.flipV) tmp2.dest.x += 12;
- double dot = tmp2.dest.x*tmpMouse.x + tmp2.dest.y*tmpMouse.y;
- double det = tmp2.dest.y*tmpMouse.y - tmp2.dest.x*tmpMouse.x;
- tmp2.dest.y = tmp.dest.y + tmp.dest.h/3 + (round(tmp2.tick/200)*2);
- if(fire && !lfire) {
-  tmp2.dest.y-=4;
-  if(tmp2.flipV) {
-   tmp2.dest.x+=16;
-  } else {
-   tmp2.dest.x-=16;
-  }
- } else if(lfire && !fire) {
-  tmp2.dest.y-=4;
-  if(tmp2.flipV) {
-   tmp2.dest.x+=8;
-  } else {
-   tmp2.dest.x-=8;
-  }
- }
- tmp.parent=1;
- tmp.child=&tmp2;
- drawToBuffer(tmp);//player);
-
- float xDistance = mouse.x - tmp2.dest.x;
- float yDistance = mouse.y - tmp2.dest.y;
- double angleToTurn = (atan2(yDistance, xDistance)) * 180 / PI;
- gun.angle=tmp2.angle=angleToTurn;
- cursor.angle=gun.angle;
-
- if(lu || ld || ll || lr) {
-  footTick++;
- } else {
-  footTick--;
- }
- if(footTick>3) {
-  footTick=0;
-  footTmp.dest.x = player.dest.x + (player.dest.w/2) - (footTmp.dest.w/2);
-  footTmp.dest.y = player.dest.y + player.dest.h - footTmp.dest.h;
-  footTmp.angle = angleToTurn;
-  if(footTmp.src.x==0) {
-   footTmp.src.x=footTmp.src.w;
-  } else {
-   footTmp.src.x=0;
-  }
-  //make sure not touching wall/top
-  if(!wallCollide && !collideV && !collideH) footprints.push_back(footTmp);
- }
- if(footTick<0)footTick=0;
- for(int f=0; f<footprints.size(); f++) {
-  footprints[f].tick--;
-  if(footprints[f].tick<200)footprints[f].src.y=footprints[f].src.h * 1;
-  if(footprints[f].tick<100)footprints[f].src.y=footprints[f].src.h * 2;
-  if(footprints[f].tick<40)footprints[f].src.y=footprints[f].src.h * 3;
-  if(footprints[f].tick<0) {
-   footprints.erase(footprints.begin()+f);
-   f--;
-  }
- }
-
-
- xDistance = tmpMouse.x - tmp2.dest.x;
- yDistance = tmpMouse.y - tmp2.dest.y + 15;
-
- int px = tmp2.dest.x + gun.dest.w * cos(atan2(yDistance, xDistance));
- int py = (tmp2.dest.y+15) + gun.dest.w * sin(atan2(yDistance, xDistance));
-
- //if(fire) {// && !lfire) {
- if(ammoCount[ammo] <= 0) fire=0;
- if(fire) {// && !lfire) {
-  int bX, bY;
-  double bA = (atan2(yDistance, xDistance));
-  int bV = 40;
-  bX = (bV * cos(bA));
-  bY = (bV * sin(bA));
-  int bType = ammo;
-  //std::string mods [6] = {"None", "Velocity", "Damage", "Burst", "Wave", "Bounce"};
-  //std::string mods2 [6] = {"None", "Velocity", "Damage", "Bounce"};
-  int bDmg = 6;
-  bool bnc = 0;
-  if(modsUnlocked[mod]) {
-   if(mods[mod] == "Velocity") bV+=10;
-   if(mods[mod] == "Damage") bDmg+=8;
-   if(mods[mod] == "Bounce" || mods2[mod2] == "Bounce") bnc=1;
-  }
-  if(mods2Unlocked[mod2]) {
-   if(mods2[mod2] == "Velocity") bV+=10;
-   if(mods2[mod2] == "Damage") bDmg+=8;
-   if(mods2[mod2] == "Random") {
-    int load;
-    bool jammed=1;
-    while(jammed) {
-     load = rand() % 5;
-     if(ammoCount[load]) {
-      ammo = load;
-      jammed=0;
+ //drawMap
+ drawMap();
+ draw(footPrints);
+ //drawtrees -> buffer
+ int treeCnt=0;
+ //buffer.clear();
+ for(auto m:map) {
+     int shift = 0;
+     if((treeCnt / map_width) % 2) shift+=tile_size/2;
+     if(m.id == TREE && inCamView(m.loc)) {
+         treeObj.loc = initRect(m.loc.x+shift,m.loc.y-(tile_size*.55),tile_size,tile_size*1.5);
+         treeObj.src = initRect(43*m.tick,0,43,76);
+         treeObj.flipH = m.flip;
+         drawToBuffer(treeObj);
      }
-    }
-   }
-  }
-  if(bType == 1) bnc=1;
-  if(bType == 2) bDmg+=8;
-  if(bType == 3) {bDmg+=4;bV+=4;}
-  if(bType == 3) bV+=8;
-  fireBullet(px + offsetX, py + offsetY, bV, bA, 1, bType, bDmg, bnc);
-  if(mods[mod] == "Burst" && modsUnlocked[mod]) {
-   fireBullet(px + offsetX, py + offsetY, bV, bA-.2, 1, bType, bDmg, bnc);
-   fireBullet(px + offsetX, py + offsetY, bV, bA-.4, 1, bType, bDmg, bnc);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+.2, 1, bType, bDmg, bnc);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+.4, 1, bType, bDmg, bnc);
-  }
-  if(mods[mod] == "Wave" && modsUnlocked[mod]) {
-   fireBullet(px + offsetX, py + offsetY, bV, bA-5, 1, bType, bDmg, bnc);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+5, 1, bType, bDmg, bnc);
-   fireBullet(px + offsetX, py + offsetY, bV, bA-10, 1, bType, bDmg, bnc);
-   fireBullet(px + offsetX, py + offsetY, bV, bA+10, 1, bType, bDmg, bnc);
-  }
-  dropEmptyShell(tmp2.dest.x + offsetX + (player.dest.w*1.7), tmp2.dest.y+15 + offsetY, bA, bType);
-  cursor.frame=1;
- } else {
-  if(cursor.frame==2) cursor.frame=0;
-  if(cursor.frame==1) cursor.frame=2;
+     treeCnt++;
  }
- lfire = fire;
-
-
- /*wolf.dest.x=player.dest.x+100-offsetX;
- wolf.dest.y=player.dest.y+100-offsetY;
- wolf.flip = player.flip;
- drawToBuffer(wolf);*/
-
- updateEnemies();
-
+ //drawplayer -> buffer
+ drawToBuffer(player);
+ //draw(gun);
+ //drawenemy -> buffer
+ for(auto e:enemies) draw(e);
+ draw(bullets);
+ draw(collectables);
+ //draw(buffer);
  drawBuffer();
-
- drawBullets();
-
- //shellPickUpTmp.src.h=7;
- //shellPickUpTmp.src.w=8;
- for(int i=0; i<shells.size(); i++) {
-  if(shells[i].id != -1) {
-   shellPickUpTmp = shells[i];
-   shellPickUpTmp.dest.x -= offsetX;
-   shellPickUpTmp.dest.y -= offsetY;
-   shellPickUpTmp.dest.x -= tmpS.dest.w/2;
-   shellPickUpTmp.dest.y -= tmpS.dest.h/2;
-   shellPickUpTmp.src.x=0;
-   //if(i==0) {std::cout << shellPickUpTmp.destx << ","<< shellPickUpTmp.desty<<std::endl;}
-   if(inScreen(shellPickUpTmp)) {
-    if(shells[i].id == 5) {
-     shellPickUpTmp.img = chessTmp.img;
-     drawToBuffer(shellPickUpTmp);
-     drawDebug(&shellPickUpTmp);
-     if(SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest)) {
-      if(rand() % 2) {
-       bool unlock=1;
-       while(unlock) {
-        int u = rand() % 5 + 1;
-        if(!modsUnlocked[u]) {modsUnlocked[u]=1; mod=u; unlock=0;}
-       }
-      } else {
-       bool unlock=1;
-       while(unlock) {
-        int u = rand() % 4 + 1;
-        if(!mods2Unlocked[u]) {mods2Unlocked[u]=1; mod2=u; unlock=0;}
-       }
-      }
-      shells.erase(shells.begin()+i);
-      i--;
-     }
-    } else if(shells[i].id == 6) {
-     shellPickUpTmp.img = heartTmp.img;
-     shellPickUpTmp.src.x=10*shells[i].tick;
-     drawToBuffer(shellPickUpTmp);
-     drawDebug(&shellPickUpTmp);
-     //std::cout << player.health << "/" << player.maxHealth << std::endl;
-     if(player.health < player.maxHealth && (SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest))) {
-      player.health+=(shells[i].tick+1)*50;
-      shells.erase(shells.begin()+i);
-      i--;
-     }
-    } else {
-     shellPickUpTmp.img = shellTmp.img;
-     shellPickUpTmp.src.x = shells[i].src.w * shells[i].id;
-     draw(&shellPickUpTmp);
-     if(SDL_HasIntersection(&tmp.dest, &shellPickUpTmp.dest) || SDL_HasIntersection(&tmp2.dest, &shellPickUpTmp.dest)) {
-      if(ammoCount[ammo]==0) ammo = shells[i].id;
-      ammoCount[shells[i].id]+=shells[i].tick;
-      shells.erase(shells.begin()+i);
-      i--;
-     }
-    }
-   }
-  }
- }
-
- drawWithOffset(snowFall);
- if(lighting.dest.w<=WIDTH*4) draw(&lighting);
-
+ draw(snowFall);
+ if(lighting.loc.w<=WIDTH*4) draw(lighting);
  drawUI();
-
- cursor.dest.x = mouse.x - cursor.dest.w/2; //+ bulletTmp.dest.w;
- cursor.dest.y = mouse.y - cursor.dest.h/2; //+ bulletTmp.dest.h;
  cursor.src.x = cursor.frame * cursor.src.w;
- draw(&cursor);
-
-
- //write(std::to_string(offsetX) + ", " + std::to_string(offsetY), cursor.dest.x+cursor.dest.w+50, cursor.dest.y+cursor.dest.h+50);
-
+ drawUpfront(cursor);
+ //write("hello world", WIDTH/2, HEIGHT/2);
+ //write(std::to_string(bullets.size()), WIDTH/2, HEIGHT/2);
 
  SDL_RenderPresent(renderer);
 }
+//draw
 
-SDL_DisplayMode DM;
+//init
+int initAudio() {
+ SDL_Init(SDL_INIT_AUDIO);
+ if(Mix_OpenAudio( 44100, MIX_DEFAULT_FORMAT, 2, 2048 ) < 0) {
+  printf("SDL_mixer could not initialize! SDL_mixer Error: %s\n", Mix_GetError());
+  return -1;
+ }
+ gunSound = loadSound("res/ray.wav");
+ //song = loadMusic("res/cold.wav"); //https://www.youtube.com/watch?v=eQyg8MBQQog
+ return 0;
+}
+void initImages() {
+    tileImgId = setImage("res/tiles.png");
+    player.img = setImage("res/player.png");
+    cursor.img = setImage("res/cursor.png");
+    gun.img = setImage("res/raygun.png");
+    UI.img = setImage("res/UI.png");
+    shellSelect.img = setImage("res/select.png");
+    modSelect.img = shellSelect.img;
+    treeObj.img = setImage("res/tree.png");
+    footTmp.img = setImage("res/footprints.png");
+    snowTmp.img = setImage("res/snow.png");
+    chess.img = setImage("res/chess.png");
+    heart.img = setImage("res/health.png");
+    shell.img = setImage("res/shells.png");
+    bullet.img = setImage("res/bullets.png");
+    lighting.img = setImage("res/lighting2.png");
+    enemy.img = setImage("res/enemy.png");
+    enemyShadow.img = enemy.img;
+}
+void initObjs() {
+    player.src = initRect(0,0,7,10);
+    player.loc = initRect(player.loc.x, player.loc.y, tile_size-8, tile_size*1.2);
+    player.health=460; player.maxHealth=500;
+    player.vel=16;
+    player.alive=1;
+    cursor.src = initRect(0, 0, 18, 18);
+    cursor.loc = initRect(0, 0, tile_size, tile_size);
+    gun.src = initRect(0, 0, 14, 5);
+    gun.loc = initRect(0, 0, tile_size*1.1, (tile_size*1.1)/2);
+    gun.rotateOnCenter=1;
+    gun.center.x=0;gun.center.y=gun.loc.h*.5;
+    player.parent=1;
+    player.children.push_back(&gun);
+    footTmp.loc = initRect(0, 0, 50, 60);
+    footTmp.src = initRect(0, 0, 10, 15);
+    footTmp.tick = 300;
+    snowTmp.src = initRect(0, 0, 7, 8);
+    snowTmp.loc = initRect(0, 0, 17, 18);
+
+    enemy.src = initRect(0, 0, 12, 12);
+    enemy.loc = initRect(0, 0, player.loc.w, player.loc.w);
+    enemyShadow = enemy;
+    enemyShadow.src.x = enemyShadow.src.w * 6;
+
+    bullet.src = initRect(0, 0, 8, 6);
+    bullet.loc = initRect(0, 0, 40, 25);
+
+    chess.src = initRect(0,0,10,10);
+    chess.loc = initRect(0,0,50,50);
+    heart.src = initRect(0,0,10,10);
+    heart.loc = initRect(0,0,50,50);
+    shell.src = initRect(0,0,8,7);
+    shell.loc = initRect(0,0,30,20);
+
+    lighting.src = initRect(0, 0, 640, 360);
+    lighting.loc = initRect(0, 0, WIDTH, HEIGHT);
+    dayClock = WIDTH;
+    dayCycle = 1;
+
+    gunUI = gun;
+    gunUI.angle = -20;
+    gunUI.loc.x=43;gunUI.loc.y=96;
+    gunUI.loc.w=gun.loc.w*1.5;gunUI.loc.h=gun.loc.h*1.5;
+    UI.src.x=UI.src.y=0;
+    UI.src.w=220;UI.src.h=154;
+    UI.loc.x=UI.loc.y=20;
+    UI.loc.w=250;UI.loc.h=200;
+    healthBar.x=30;
+    healthBar.y=180;
+    maxHealthBar=UI.loc.w*.6;
+    healthBar.w=maxHealthBar;
+    healthBar.h=40;
+    int SSIMG = shellSelect.img;
+    shellSelect = UI;
+    shellSelect.img = SSIMG;
+    modSelect = shellSelect;
+}
 void init() {
- std::cout << "SEED: " << seed << std::endl;
+ seed = time(NULL);
  srand(seed);
  SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
  if(SDL_Init(SDL_INIT_EVERYTHING) < 0) std::cout << "Failed at SDL_Init()" << std::endl;
@@ -1443,168 +1312,58 @@ void init() {
  font = TTF_OpenFont("res/font.ttf", font_size);
  if(font == NULL) std::cout << "Failed to load font" << std::endl;
  SDL_ShowCursor(SDL_DISABLE);
-}
-void gameInit() {
- setBkg(51, 73, 95);
- //setBkg(255, 0, 0);
- font_color = white; //setColor(0, 255, 255);
  initAudio();
  genMap();
+ running = 1;
+ setBkg(51, 73, 95);
+ lens.w=WIDTH;
+ lens.h=HEIGHT;
+ camera.x=WIDTH/2; camera.y=HEIGHT/2;
+ initImages();
+ initObjs();
  floorPer();
- offsetX=map_width/2 * tile_size - WIDTH/2;
- offsetY=map_height/2 * tile_size - HEIGHT/2;
- treeObj.dest.w=tile_size;treeObj.src.w=43;
- treeObj.dest.h=tile_size*1.5;treeObj.src.h=76;
- treeObj.src.x=treeObj.src.y=0;
- treeObj.img = setImage("res/tree.png");
- treeObj.flip=1;
- player.dest.x = spawn.x * tile_size;
- player.dest.y = spawn.y * tile_size;
- player.dest.w = tile_size-8;
- player.dest.h = tile_size*1.2;
- player.src.x=player.src.y=0;
- player.src.w=7;
- player.src.h=10;
- player.img = setImage("res/player.png");
- player.health = 160;
- player.maxHealth = 200;
- gun.img = setImage("res/raygun.png");//gun.png");
- gun.src.x=gun.src.y=0;
- gun.src.w=14;//9;
- gun.src.h=5;//3;
- gun.dest.w=tile_size*1.1;
- gun.dest.h=gun.dest.w/2;
- gun.center.y=gun.dest.h/2;
- gun.rotateOnCenter = true;
- wolf.img = setImage("res/wolf.png");
- wolf.src.x=wolf.src.y=0;
- wolf.src.w=14;
- wolf.src.h=8;
- wolf.dest.w=tile_size*1.3;
- wolf.dest.h=wolf.dest.w*.7;
- tilesImgId = setImage("res/tiles.png");
- initBullet();
- cursor.img = setImage("res/cursor.png");
- cursor.src.x=cursor.src.y=0;
- cursor.src.w=cursor.src.h=18;
- cursor.dest.w=cursor.dest.h=tile_size;
- cursor.frame=0;
- screenRect.x=screenRect.y=0;
- screenRect.x=WIDTH;screenRect.y=HEIGHT;
- footTmp.dest.w=50;
- footTmp.dest.h=60;
- footTmp.src.x=0;
- footTmp.src.y=0;
- footTmp.src.w=10;
- footTmp.src.h=15;
- footTmp.img = setImage("res/footprints.png");
- footTmp.tick = 300;
- gunUI=gun;
- gunUI.angle = -20;
- gunUI.dest.x=43;gunUI.dest.y=96;
- gunUI.dest.w=gun.dest.w*1.5;gunUI.dest.h=gun.dest.h*1.5;
- UI.img = setImage("res/UI.png");
- UI.src.x=UI.src.y=0;
- UI.src.w=220;UI.src.h=154;
- UI.dest.x=UI.dest.y=20;
- UI.dest.w=250;UI.dest.h=200;
- healthBar.x=30;
- healthBar.y=180;
- maxHealthBar=UI.dest.w*.6;
- healthBar.w=maxHealthBar;
- healthBar.h=40;
- pauseUI.img = setImage("res/pause.png");
- pauseUI.src.x=pauseUI.src.y=0;
- pauseUI.src.w=246;pauseUI.src.h=144;
- pauseUI.dest.x=pauseUI.dest.y=0;
- pauseUI.dest.w=DM.w;pauseUI.dest.h=DM.h;
- paused = 1;
- dayClock = WIDTH;
- dayCycle = 1;
- shellSelect = UI;
- shellSelect.img = setImage("res/select.png");
- modSelect = shellSelect;
- snowTmp.img = setImage("res/snow.png");
- snowTmp.src.x=snowTmp.src.y=0;
- snowTmp.src.w=7;snowTmp.src.h=8;
- snowTmp.dest.w=17;snowTmp.dest.h=18;
- //lighting.src.w=160;lighting.src.h=90;
- lighting.src.h=360;lighting.src.w=640;
- lighting.dest.w=WIDTH;lighting.dest.h=HEIGHT;
- lighting.dest.x=lighting.dest.y=lighting.src.x=lighting.src.y=0;
- //lighting.img = setImage("res/lighting.png");
- lighting.img = setImage("res/lighting2.png");
- chessTmp.img = setImage("res/chess.png");
- chessTmp.src.x=chessTmp.src.y=10;
- heartTmp.img = setImage("res/health.png");
- //std::cout << heartTmp.img << std::endl;
- heartTmp.src.x=heartTmp.src.y=10;
- enemyTmp.img = setImage("res/enemy.png");
- enemyTmp.vel = 8;
- enemyTmp.src.x=enemyTmp.src.y=0;
- enemyTmp.src.w=enemyTmp.src.h=12;
- enemyTmp.dest.w=enemyTmp.dest.h=player.dest.w;
- enemyShadow = enemyTmp;
- enemyShadow.src.x = enemyShadow.src.w * 6;
- enemyTmp.parent=1;
- enemyTmp.child=&enemyShadow;
+ font_color = white;
 }
 
-void quit() {
- //delete (keystates);
+//quit
+void quitSounds() {
+ for(int s=0; s<sounds.size(); s++) {
+  Mix_FreeChunk(sounds[s]);
+  sounds[s]=NULL;
+ }
+ for(int m=0; m<music.size(); m++) {
+  Mix_FreeMusic(music[m]);
+  music[m]=NULL;
+ }
+ Mix_Quit();
+}
+int quit() {
  quitSounds();
  TTF_CloseFont(font);
  SDL_DestroyRenderer(renderer);
  SDL_DestroyWindow(window);
  SDL_Quit();
+ return 0;
 }
 
-int main(int argc, char **argv) {
- seed = time(NULL);
- //std::cout << argv[1] << "\n";
- if(argc>=2) seed = atoi(argv[1]);
- init();
- gameInit();
- static int lastTime = 0;
- while(running) {
-  playMusic(song);
-  lastFrame=SDL_GetTicks();
-  if(lastFrame>=(lastTime+1000)) {
-   lastTime=lastFrame;
-   fps=frameCount;
-   frameCount=0;
-  }
-  if(!paused) {
-  input();
-  update();
-  render();
-  } else {
-   SDL_SetRenderDrawColor(renderer, bkg.r, bkg.g, bkg.b, bkg.a);
-   SDL_RenderClear(renderer);
-   frameCount++;
-   timerFPS = SDL_GetTicks()-lastFrame;
-   if(timerFPS<(1000/setFPS)) {
-    SDL_Delay((1000/setFPS)-timerFPS);
-   }
-   SDL_GetMouseState(&mouse.x, &mouse.y);
-   cursor.dest.x = mouse.x - cursor.dest.w/2;
-   cursor.dest.y = mouse.y - cursor.dest.h/2;
-   cursor.src.x = cursor.frame * cursor.src.w;
-   draw(&pauseUI);
-   draw(&cursor);
-   SDL_RenderPresent(renderer);
-   keystates = SDL_GetKeyboardState(NULL);
-   if(keystates[SDL_SCANCODE_ESCAPE]) running=false;
-   while(SDL_PollEvent(&e)) {
-     if(e.type == SDL_QUIT) running=false;
-   }
-   mousestate = SDL_GetMouseState(&mouse.x, &mouse.y);
-   if(keystates[SDL_SCANCODE_P]) {if(!lpaused){paused=false;}lpaused=1;
-   }else{lpaused=0;}
-   cursor.angle+=4;
-  }
- }
- quit();
- return 1;
+//main
+int main() {
+    init();
+    while(running) {
+     lastFrame=SDL_GetTicks();
+     if(lastFrame>=(lastTime+1000)) {
+      lastTime=lastFrame;
+      fps=frameCount;
+      frameCount=0;
+     }
+      input();
+      update();
+      render();
+      //std::cout << "Enemies: " << enemies.size() << std::endl;
+      //std::cout << "Bullets: " << bullets.size() << std::endl;
+      //std::cout << "Collectables: " << collectables.size() << std::endl;
+      //std::cout << "Snowfall: " << snowFall.size() << std::endl;
+      //std::cout << fps << std::endl << std::endl;
+    }
+    return quit();
 }
-

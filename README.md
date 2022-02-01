@@ -1,7 +1,9 @@
 # bullet-hell
 making a bullet hell game in a month (Jan 2022) - SDL2 - procedural generated maps
 
-(Tmp) music file too large, download it [here](http://jar.ylimaf.com/cold.wav) and put it in the res/ directory.
+(Tmp) music file too large, download it [here](http://jar.ylimaf.com/cold.wav) and put it in the res/ directory and then uncomment lines 866 and 1217 in the proj.cpp.
+
+Tested on Linux. Use make to build. Still working on porting the game.
 
 [Devlog 1](https://www.youtube.com/watch?v=76DXj4hbBoE)
 
