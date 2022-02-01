@@ -548,7 +548,7 @@ void input() {
     if(keystates[SDL_SCANCODE_S] || keystates[SDL_SCANCODE_DOWN]) down=1;
     if(keystates[SDL_SCANCODE_A] || keystates[SDL_SCANCODE_LEFT]) left=1;
     if(keystates[SDL_SCANCODE_D] || keystates[SDL_SCANCODE_RIGHT]) right=1;
-    if(keystates[SDL_SCANCODE_Q]) freeroam=!freeroam;
+    //if(keystates[SDL_SCANCODE_Q]) freeroam=!freeroam;
     if(keystates[SDL_SCANCODE_1]) select=0;
     if(keystates[SDL_SCANCODE_2]) select=1;
     if(keystates[SDL_SCANCODE_3]) select=2;
