@@ -13,7 +13,7 @@ Dependencies: SDL2, SDL2_ttf, SDL2_mixer, SDL2_image
 
 [Devlog 3](https://youtu.be/f-4PXaSwO-8)
 
-[Devlog 4](https://youtu.be/7VcE4u2sSxw)
+[Devlog 4](https://youtu.be/KD6HedQUFgg)
 
 CONTROLS:
 
