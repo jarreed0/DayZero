@@ -9,6 +9,7 @@ int WIDTH = 1800;
 int HEIGHT = 900;
 int flags = SDL_WINDOW_FULLSCREEN; //not used yet
 SDL_Renderer* renderer;
+SDL_Texture* screen;
 SDL_Window* window;
 TTF_Font *font;
 SDL_Color font_color;
@@ -30,6 +31,10 @@ int seed;
 
 int frameCount, timerFPS, lastFrame, fps, lastTime;
 int setFPS = 60;
+
+bool shake, shaking;
+SDL_Rect screensrc, screendest;
+int shaketick;
 
 const Uint8 *keystates;
 Uint32 mousestate;
@@ -661,6 +666,7 @@ void updateBullets() {
                 fireBullet(PLAYER_ID, px, py, gun.angle+40, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
                 fireBullet(PLAYER_ID, px, py, gun.angle+80, ammo, gun.loc.w*.8, bVel, bDmg, bnc);
             }
+            shaking=1;
             ammoCount[ammo]--;
         }
         cursor.frame=1;
@@ -1159,7 +1165,9 @@ void drawBuffer() {
     bufLow=bufHigh=-99;
 }
 //
+
 void render() {
+ SDL_SetRenderTarget(renderer, screen);
  SDL_SetRenderDrawColor(renderer, bkg.r, bkg.g, bkg.b, bkg.a);
  SDL_RenderClear(renderer);
  frameCount++;
@@ -1201,6 +1209,25 @@ void render() {
  drawUpfront(cursor);
  //write("hello world", WIDTH/2, HEIGHT/2);
  //write(std::to_string(bullets.size()), WIDTH/2, HEIGHT/2);
+
+ SDL_SetRenderTarget(renderer, NULL);
+ if(shaking) {
+  if(shake) {
+   screendest.x+=3;
+   screendest.y+=3;
+  } else {
+   screendest.x-=3;
+   screendest.y-=3;
+  }
+  shake=!shake;
+  shaketick++;
+ }
+ if(shaketick > 3) {
+  shaking=0;
+  shaketick=0;
+  screendest=screensrc;
+ }
+ SDL_RenderCopy(renderer, screen, &screensrc, &screendest);
 
  SDL_RenderPresent(renderer);
 }
@@ -1293,6 +1320,11 @@ void initObjs() {
     shellSelect = UI;
     shellSelect.img = SSIMG;
     modSelect = shellSelect;
+
+    screensrc = initRect(0,0,WIDTH,HEIGHT);
+    screendest = screensrc;
+    screen = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, WIDTH, HEIGHT);
+    shake=shaking=0;
 }
 void init() {
  seed = time(NULL);
@@ -1306,7 +1338,6 @@ void init() {
  renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
  SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
  SDL_SetWindowFullscreen(window, SDL_WINDOW_FULLSCREEN);
- SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
  TTF_Init();
  font_size = 16;
  font = TTF_OpenFont("res/font.ttf", font_size);
