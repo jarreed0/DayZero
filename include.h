@@ -2,6 +2,7 @@
 #include "headers/SDL_image.h"
 #include "headers/SDL_ttf.h"
 #include "headers/SDL_mixer.h"
+#include "headers/SDL_gpu.h"
 
 /*
 #if __has_include(<SDL2/SDL.h>)
